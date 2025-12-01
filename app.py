@@ -7,6 +7,7 @@ import plotly.express as px
 import io
 import re
 from io import StringIO
+import PyPDF2
 
 # Page config
 st.set_page_config(page_title="KenZen AI Finance Dashboard", layout="wide", initial_sidebar_state="collapsed")
@@ -77,23 +78,20 @@ def generate_mock_data():
     return pd.DataFrame(transactions)
 
 def parse_csv_file(uploaded_file):
-    """Bulletproof CSV parser - tries every approach"""
+    """Parse CSV and PDF bank statements - extracts transaction data"""
     try:
+        uploaded_file.seek(0)
+        content = uploaded_file.read()
+        
+        if content[:4] == b'%PDF':
+            return parse_pdf_file(content)
+        
+        # CSV parsing
         encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'utf-16', 'ascii']
         df = None
         
-        # Try each encoding
         for encoding in encodings:
             try:
-                uploaded_file.seek(0)
-                content = uploaded_file.read()
-                
-                # Skip if it's a PDF
-                if content[:4] == b'%PDF':
-                    st.error("PDF files not supported. Please export as CSV.")
-                    return None
-                
-                # Parse CSV
                 df = pd.read_csv(
                     io.StringIO(content.decode(encoding)),
                     on_bad_lines='skip',
@@ -102,26 +100,106 @@ def parse_csv_file(uploaded_file):
                 )
                 
                 if len(df) > 0 and len(df.columns) > 0:
-                    st.write(f"[DEBUG] Successfully parsed with {encoding} encoding")
+                    st.write(f"[DEBUG] CSV parsed with {encoding}")
                     break
-            except Exception as e:
+            except:
                 continue
         
         if df is None or len(df) == 0:
-            st.error("Could not parse CSV with any encoding")
+            st.error("Could not parse CSV")
             return None
         
-        # Remove empty rows
         df = df.dropna(how='all')
         df = df[df.columns[df.notna().any()]]
         
-        st.write(f"[DEBUG] Loaded {len(df)} rows, {len(df.columns)} columns")
+        st.write(f"[DEBUG] {len(df)} rows, {len(df.columns)} columns")
         st.write(f"[DEBUG] Columns: {df.columns.tolist()}")
-        st.write(f"[DEBUG] First row:\n{df.iloc[0].to_dict()}")
         
         return df
     except Exception as e:
         st.error(f"Parse error: {str(e)}")
+        return None
+
+def parse_pdf_file(pdf_content):
+    """Extract transactions from PDF bank statement"""
+    try:
+        pdf_file = io.BytesIO(pdf_content)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        
+        st.write(f"[DEBUG] PDF has {len(pdf_reader.pages)} pages")
+        
+        # Extract text from all pages
+        full_text = ""
+        for page_num, page in enumerate(pdf_reader.pages):
+            text = page.extract_text()
+            full_text += text + "\n"
+        
+        st.write(f"[DEBUG] Extracted {len(full_text)} characters")
+        
+        transactions = []
+        
+        # Common patterns in bank statements:
+        # Date patterns: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY
+        date_pattern = r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})'
+        
+        # Amount pattern: $123.45 or 123.45
+        amount_pattern = r'\$?(\d+[,.]?\d*[,.]?\d*)'
+        
+        lines = full_text.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line or len(line) < 10:
+                continue
+            
+            # Skip header/footer rows
+            if any(skip in line.lower() for skip in ['total', 'balance', 'account', 'statement', 'page']):
+                continue
+            
+            # Try to find date
+            date_match = re.search(date_pattern, line)
+            if not date_match:
+                continue
+            
+            # Try to extract amount (usually at end of line)
+            amounts = re.findall(r'\d+[,.]?\d{0,2}', line)
+            if not amounts:
+                continue
+            
+            try:
+                transaction_date = pd.to_datetime(date_match.group(1), infer_datetime_format=True)
+                amount = float(amounts[-1].replace(',', ''))
+                
+                # Extract merchant name (between date and amount)
+                merchant = line.replace(date_match.group(0), '').strip()
+                for amt in amounts:
+                    merchant = merchant.replace(amt, '').strip()
+                merchant = merchant[:50] if merchant else 'Transaction'
+                
+                if amount > 0:
+                    transactions.append({
+                        'Date': transaction_date,
+                        'Merchant': merchant,
+                        'Amount': amount,
+                        'Type': 'Debit'
+                    })
+                    st.write(f"[DEBUG] Found: {transaction_date.date()} | {merchant} | ${amount}")
+            except:
+                continue
+        
+        if not transactions:
+            st.warning("Could not extract transactions from PDF")
+            return None
+        
+        df = pd.DataFrame(transactions)
+        st.write(f"[DEBUG] Extracted {len(df)} transactions from PDF")
+        return df
+        
+    except ImportError:
+        st.error("PyPDF2 not installed. Please use CSV export instead.")
+        return None
+    except Exception as e:
+        st.error(f"PDF parsing error: {str(e)}")
         return None
 
 def standardize_transactions(df):
