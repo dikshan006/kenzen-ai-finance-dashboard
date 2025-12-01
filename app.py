@@ -142,8 +142,13 @@ def load_transactions(uploaded_file):
         source = "Mock demo data (KenZen simulator)"
         return df, source
 
-    # Read user's CSV
-    df = pd.read_csv(uploaded_file)
+    # Try normal UTF-8 first
+    try:
+        df = pd.read_csv(uploaded_file)
+    except UnicodeDecodeError:
+        # Reset file pointer and try a more tolerant encoding
+        uploaded_file.seek(0)
+        df = pd.read_csv(uploaded_file, encoding="latin1")
 
     # Clean column names
     df.columns = [c.strip() for c in df.columns]
@@ -154,6 +159,7 @@ def load_transactions(uploaded_file):
 
     source = "Your uploaded CSV"
     return df, source
+
 
 # -------------------------------------------------
 # KPI calculations (uses global df)
