@@ -138,6 +138,74 @@ def generate_mock_data():
     return df
 
 # Load data – mock by default, CSV if uploaded
+def standardize_transactions(df: pd.DataFrame) -> pd.DataFrame:
+    cols = list(df.columns)
+    lower_map = {c.lower(): c for c in cols}
+
+    # ---- Date ----
+    if "Date" not in df.columns:
+        for key, col in lower_map.items():
+            if "date" in key:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+                df.rename(columns={col: "Date"}, inplace=True)
+                break
+
+    # ---- Merchant / Description ----
+    if "Merchant" not in df.columns:
+        for candidate in ["description", "details", "merchant", "narration"]:
+            if candidate in lower_map:
+                df.rename(columns={lower_map[candidate]: "Merchant"}, inplace=True)
+                break
+    if "Merchant" not in df.columns:
+        df["Merchant"] = "Unknown"
+
+    # ---- Amount + Type ----
+    # Case 1: separate Debit / Credit columns
+    debit_col = None
+    credit_col = None
+    for key, col in lower_map.items():
+        if "debit" in key:
+            debit_col = col
+        if "credit" in key and "card" not in key:
+            credit_col = col
+
+    if debit_col or credit_col:
+        debit_vals = pd.to_numeric(df[debit_col], errors="coerce") if debit_col else 0
+        credit_vals = pd.to_numeric(df[credit_col], errors="coerce") if credit_col else 0
+
+        df["Amount"] = debit_vals.fillna(0) + credit_vals.fillna(0)
+        df["Type"] = np.where(
+            debit_vals.fillna(0) > 0,
+            "Debit",
+            np.where(credit_vals.fillna(0) > 0, "Credit", "Debit"),
+        )
+    else:
+        # Case 2: single Amount column with +/- values or just positive
+        amount_col = None
+        for key, col in lower_map.items():
+            if "amount" in key or key.endswith(" amt"):
+                amount_col = col
+                break
+
+        if amount_col is None:
+            raise KeyError("Could not find an Amount / Debit / Credit column in your CSV.")
+
+        df["Amount"] = pd.to_numeric(df[amount_col], errors="coerce")
+
+        # If Type exists, keep it; otherwise infer from sign
+        if "Type" not in df.columns:
+            df["Type"] = np.where(df["Amount"] < 0, "Debit", "Credit")
+            df["Amount"] = df["Amount"].abs()
+
+    # ---- Category ----
+    if "Category" not in df.columns:
+        df["Category"] = "Uncategorized"
+
+    # Final clean
+    df = df.dropna(subset=["Date", "Amount"])
+    return df[["Date", "Merchant", "Category", "Amount", "Type"]]
+
+
 @st.cache_data
 def load_transactions(uploaded_file):
     if uploaded_file is None:
@@ -157,7 +225,6 @@ def load_transactions(uploaded_file):
         else:
             text = raw  # already string
 
-        # 3) Let pandas auto-detect separator, skip bad lines
         df = pd.read_csv(
             io.StringIO(text),
             sep=None,
@@ -168,17 +235,11 @@ def load_transactions(uploaded_file):
     # Clean column names
     df.columns = [c.strip() for c in df.columns]
 
-    # Try to normalize date column
-    for col in df.columns:
-        if "date" in col.lower():
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-            df.rename(columns={col: "Date"}, inplace=True)
-            break
+    # Normalize columns: Date, Amount, Type, Merchant, Category
+    df = standardize_transactions(df)
 
     source = "Your uploaded CSV"
     return df, source
-
-
 
 # -------------------------------------------------
 # KPI calculations (uses global df)
