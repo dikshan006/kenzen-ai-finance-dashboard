@@ -134,11 +134,29 @@ def generate_mock_data():
     df["Date"] = pd.to_datetime(df["Date"])
     return df
 
+# Load data – mock by default, CSV if uploaded
+@st.cache_data
+def load_transactions(uploaded_file):
+    if uploaded_file is None:
+        df = generate_mock_data()
+        source = "Mock demo data (KenZen simulator)"
+        return df, source
 
-df = generate_mock_data()
+    # Read user's CSV
+    df = pd.read_csv(uploaded_file)
+
+    # Clean column names
+    df.columns = [c.strip() for c in df.columns]
+
+    # Parse dates if column exists
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    source = "Your uploaded CSV"
+    return df, source
 
 # -------------------------------------------------
-# KPI calculations
+# KPI calculations (uses global df)
 # -------------------------------------------------
 def calculate_kpis():
     base_balance = 5000
@@ -168,14 +186,29 @@ def calculate_kpis():
         "total_debits": debits,
     }
 
+# -------------------------------------------------
+# Header + CSV Upload
+# -------------------------------------------------
+header_left, header_right = st.columns([3, 1])
 
+with header_left:
+    st.markdown("## KenZen AI Finance Dashboard")
+    st.markdown("A dark-mode analytics cockpit for personal finance – live spending, anomalies, and insights.")
+
+with header_right:
+    uploaded_file = st.file_uploader(
+        "Upload CSV",
+        type=["csv"],
+        label_visibility="collapsed",
+        help="Upload a bank statement CSV to analyze your real transactions.",
+    )
+
+# Load data (mock by default, CSV if uploaded)
+df, data_source = load_transactions(uploaded_file)
+st.caption(f"📌 Data source: {data_source}")
+
+# Now compute KPIs using the final df
 kpis = calculate_kpis()
-
-# -------------------------------------------------
-# Header
-# -------------------------------------------------
-st.markdown("## KenZen AI Finance Dashboard")
-st.markdown("A dark-mode analytics cockpit for personal finance – live spending, anomalies, and insights.")
 
 # -------------------------------------------------
 # KPI Row
