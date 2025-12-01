@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+import io
+from pandas.errors import ParserError
+
 
 # -------------------------------------------------
 # Page config
@@ -142,23 +145,39 @@ def load_transactions(uploaded_file):
         source = "Mock demo data (KenZen simulator)"
         return df, source
 
-    # Try normal UTF-8 first
+    # 1) Try normal read_csv
     try:
         df = pd.read_csv(uploaded_file)
-    except UnicodeDecodeError:
-        # Reset file pointer and try a more tolerant encoding
+    except (UnicodeDecodeError, ParserError):
+        # 2) Reset file pointer and read as text with tolerant decoding
         uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, encoding="latin1")
+        raw = uploaded_file.read()
+        if isinstance(raw, bytes):
+            text = raw.decode("latin1", errors="ignore")
+        else:
+            text = raw  # already string
+
+        # 3) Let pandas auto-detect separator, skip bad lines
+        df = pd.read_csv(
+            io.StringIO(text),
+            sep=None,
+            engine="python",
+            on_bad_lines="skip",
+        )
 
     # Clean column names
     df.columns = [c.strip() for c in df.columns]
 
-    # Parse dates if column exists
-    if "Date" in df.columns:
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    # Try to normalize date column
+    for col in df.columns:
+        if "date" in col.lower():
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+            df.rename(columns={col: "Date"}, inplace=True)
+            break
 
     source = "Your uploaded CSV"
     return df, source
+
 
 
 # -------------------------------------------------
