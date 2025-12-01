@@ -13,82 +13,26 @@ st.set_page_config(page_title="KenZen AI Finance Dashboard", layout="wide", init
 
 st.markdown("""
     <style>
-    body {
-        background-color: #0f172a;
-        color: #e2e8f0;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 2.2rem;
-        font-weight: 600;
-        color: #06b6d4;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.85rem;
-        color: #94a3b8;
-        font-weight: 400;
-        letter-spacing: 0.5px;
-    }
-    .main {
-        padding: 2.5rem 3rem;
-        background-color: #0f172a;
-    }
-    h1 {
-        color: #f1f5f9;
-        margin-bottom: 0.5rem;
-        font-size: 2.8rem;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-    }
-    h2 {
-        color: #cbd5e1;
-        margin-top: 2.5rem;
-        margin-bottom: 1.5rem;
-        font-size: 1.5rem;
-        font-weight: 600;
-        border-bottom: 1px solid #334155;
-        padding-bottom: 0.75rem;
-    }
-    .stInfo {
-        background-color: #1e293b;
-        border-left: 3px solid #06b6d4;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        color: #e2e8f0;
-    }
-    .stSuccess {
-        background-color: #1e293b;
-        border-left: 3px solid #10b981;
-        border-radius: 0.5rem;
-        padding: 1rem;
-    }
-    .stWarning {
-        background-color: #1e293b;
-        border-left: 3px solid #f59e0b;
-        border-radius: 0.5rem;
-        padding: 1rem;
-    }
-    [data-testid="stDataFrame"] {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 0.5rem;
-    }
-    .stCaption {
-        color: #64748b;
-        font-size: 0.8rem;
-    }
-    .stDivider {
-        border-top: 1px solid #334155;
-        margin: 2rem 0;
-    }
+    body { background-color: #0f172a; color: #e2e8f0; }
+    [data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 600; color: #06b6d4; }
+    [data-testid="stMetricLabel"] { font-size: 0.85rem; color: #94a3b8; font-weight: 400; letter-spacing: 0.5px; }
+    .main { padding: 2.5rem 3rem; background-color: #0f172a; }
+    h1 { color: #f1f5f9; margin-bottom: 0.5rem; font-size: 2.8rem; font-weight: 700; letter-spacing: -0.5px; }
+    h2 { color: #cbd5e1; margin-top: 2.5rem; margin-bottom: 1.5rem; font-size: 1.5rem; font-weight: 600; border-bottom: 1px solid #334155; padding-bottom: 0.75rem; }
+    .stInfo { background-color: #1e293b; border-left: 3px solid #06b6d4; border-radius: 0.5rem; padding: 1rem; color: #e2e8f0; }
+    .stSuccess { background-color: #1e293b; border-left: 3px solid #10b981; border-radius: 0.5rem; padding: 1rem; }
+    .stWarning { background-color: #1e293b; border-left: 3px solid #f59e0b; border-radius: 0.5rem; padding: 1rem; }
+    [data-testid="stDataFrame"] { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; }
+    .stCaption { color: #64748b; font-size: 0.8rem; }
     </style>
     """, unsafe_allow_html=True)
 
 # Initialize session state
-if 'uploaded_file' not in st.session_state:
-    st.session_state.uploaded_file = None
+if 'uploaded_df' not in st.session_state:
+    st.session_state.uploaded_df = None
+if 'use_uploaded' not in st.session_state:
+    st.session_state.use_uploaded = False
 
-# Generate mock transaction data
-@st.cache_data
 def generate_mock_data():
     np.random.seed(42)
     dates = [datetime.now() - timedelta(days=x) for x in range(90)]
@@ -110,113 +54,89 @@ def generate_mock_data():
         for _ in range(num_transactions):
             category = np.random.choice(categories)
             merchant = np.random.choice(merchants[category])
-            
-            # Base amounts by category
             base_amounts = {
-                'Groceries': 80,
-                'Dining': 25,
-                'Transportation': 40,
-                'Entertainment': 15,
-                'Utilities': 100,
-                'Shopping': 60
+                'Groceries': 80, 'Dining': 25, 'Transportation': 40,
+                'Entertainment': 15, 'Utilities': 100, 'Shopping': 60
             }
-            
             amount = base_amounts[category] + np.random.normal(0, base_amounts[category] * 0.3)
             amount = max(5, abs(amount))
-            
-            # 80% debit, 20% credit (income)
             transaction_type = 'Credit' if np.random.random() < 0.1 else 'Debit'
             
             transactions.append({
-                'Date': date,
-                'Merchant': merchant,
-                'Category': category,
-                'Amount': round(amount, 2),
-                'Type': transaction_type
+                'Date': date, 'Merchant': merchant, 'Category': category,
+                'Amount': round(amount, 2), 'Type': transaction_type
             })
     
-    # Add some income transactions
     for i in range(0, 90, 30):
         if i < len(dates):
             transactions.append({
-                'Date': dates[i],
-                'Merchant': 'Employer Deposit',
-                'Category': 'Income',
-                'Amount': 3000,
-                'Type': 'Credit'
+                'Date': dates[i], 'Merchant': 'Employer Deposit', 'Category': 'Income',
+                'Amount': 3000, 'Type': 'Credit'
             })
     
     return pd.DataFrame(transactions)
 
-def extract_text_from_pdf(uploaded_file):
-    """
-    Extract text from PDF and convert to CSV-like format.
-    Returns dataframe or None if parsing fails.
-    """
+def parse_csv_file(uploaded_file):
+    """New aggressive CSV parser that works with any column names"""
     try:
-        import PyPDF2
-        uploaded_file.seek(0)
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
+        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'ascii']
+        df = None
         
-        # Try to parse as table-like text
-        lines = text.split('\n')
-        data = []
+        for encoding in encodings:
+            try:
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding=encoding, on_bad_lines='skip', dtype=str)
+                if len(df) > 0:
+                    break
+            except:
+                continue
         
-        for line in lines:
-            # Look for date patterns
-            date_match = re.search(r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}', line)
-            amount_match = re.search(r'\$?\d+[.,]\d{2}', line)
-            
-            if date_match and amount_match:
-                parts = line.split()
-                data.append(parts)
+        if df is None or len(df) == 0:
+            return None
         
-        if data:
-            df = pd.DataFrame(data)
-            return df
-        return None
-    except Exception:
+        st.write("[DEBUG] CSV loaded. Columns:", df.columns.tolist())
+        st.write("[DEBUG] First row:", df.iloc[0].to_dict() if len(df) > 0 else "No data")
+        
+        return df
+    except Exception as e:
+        st.error(f"Failed to parse: {str(e)}")
         return None
 
-def standardize_transactions(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Complete rewrite: Handles any CSV format, extracts date/merchant/amount intelligently
-    """
+def standardize_transactions(df):
+    """More aggressive column detection - tries every column combination"""
     try:
         df = df.copy()
         
-        # Clean and standardize columns
-        df.columns = df.columns.str.strip()
+        # Normalize column names
+        df.columns = [col.strip().lower() for col in df.columns]
         
-        # Find Date column with flexible patterns
+        # Debug: show what columns we have
+        st.write("[DEBUG] Normalized columns:", df.columns.tolist())
+        
+        # Find date column - check every column
         date_col = None
         for col in df.columns:
-            col_lower = col.lower()
-            if any(x in col_lower for x in ['date', 'posted', 'trans', 'tdate', 'post']):
+            if any(x in col for x in ['date', 'posted', 'trans', 'tdate', 'post', 'transaction']):
                 date_col = col
                 break
         
-        if not date_col and len(df) > 0:
+        if not date_col:
             date_col = df.columns[0]
         
-        if date_col:
-            try:
-                df['Date'] = pd.to_datetime(df[date_col], errors='coerce', infer_datetime_format=True)
-                df = df.dropna(subset=['Date'])
-            except:
-                df['Date'] = pd.to_datetime(df[date_col], format='%m/%d/%Y', errors='coerce')
-                df = df.dropna(subset=['Date'])
-        else:
+        st.write(f"[DEBUG] Using '{date_col}' as date column")
+        
+        # Convert to datetime
+        df['Date'] = pd.to_datetime(df[date_col], errors='coerce', infer_datetime_format=True)
+        df = df.dropna(subset=['Date'])
+        
+        if len(df) == 0:
+            st.error("No valid dates found")
             return None
         
-        # Find Merchant/Description with flexible patterns
+        # Find merchant/description
         merchant_col = None
         for col in df.columns:
-            col_lower = col.lower()
-            if any(x in col_lower for x in ['merchant', 'description', 'desc', 'details', 'narration', 'memo']):
+            if any(x in col for x in ['merchant', 'description', 'desc', 'details', 'narration', 'memo', 'notes', 'payee']):
                 merchant_col = col
                 break
         
@@ -225,10 +145,10 @@ def standardize_transactions(df: pd.DataFrame) -> pd.DataFrame:
         else:
             df['Merchant'] = 'Transaction'
         
-        # Find Category or default
+        # Find category
         category_col = None
         for col in df.columns:
-            if 'category' in col.lower():
+            if 'category' in col:
                 category_col = col
                 break
         
@@ -237,106 +157,72 @@ def standardize_transactions(df: pd.DataFrame) -> pd.DataFrame:
         else:
             df['Category'] = 'Other'
         
+        # Find amount columns - be aggressive
         amount_col = None
         debit_col = None
         credit_col = None
         
         for col in df.columns:
-            col_lower = col.lower()
-            
-            if any(x in col_lower for x in ['debit', 'withdrawal', 'out', 'paid']) and 'card' not in col_lower:
+            if any(x in col for x in ['debit', 'withdrawal', 'out']) and 'card' not in col:
                 debit_col = col
-            if any(x in col_lower for x in ['credit', 'deposit', 'in', 'income']) and 'card' not in col_lower:
+            if any(x in col for x in ['credit', 'deposit', 'in']) and 'card' not in col:
                 credit_col = col
-            if any(x in col_lower for x in ['amount', 'amt', 'value', 'total']) and amount_col is None:
+            if any(x in col for x in ['amount', 'amt', 'value', 'total', 'transaction']):
                 amount_col = col
         
-        # Convert amounts to numeric, handling currency symbols
+        st.write(f"[DEBUG] debit_col={debit_col}, credit_col={credit_col}, amount_col={amount_col}")
+        
         def clean_amount(val):
-            if pd.isna(val):
+            if pd.isna(val) or val == '':
                 return 0
             val_str = str(val).replace('$', '').replace(',', '').strip()
+            val_str = val_str.replace('(', '-').replace(')', '')
             try:
-                return abs(float(val_str))
+                return float(val_str)
             except:
                 return 0
         
-        if debit_col is not None or credit_col is not None:
-            debit_vals = df[debit_col].apply(clean_amount) if debit_col is not None else 0
-            credit_vals = df[credit_col].apply(clean_amount) if credit_col is not None else 0
-            
-            df['Amount'] = debit_vals + credit_vals
-            df['Type'] = df.apply(
-                lambda row: 'Debit' if (debit_col and clean_amount(row.get(debit_col, 0)) > 0) else 'Credit',
-                axis=1
-            )
-        elif amount_col is not None:
+        # Build Amount column
+        if debit_col or credit_col:
+            df['Amount'] = 0.0
+            if debit_col:
+                df['Amount'] += df[debit_col].apply(clean_amount)
+            if credit_col:
+                df['Amount'] += df[credit_col].apply(clean_amount)
+            df['Type'] = df.apply(lambda r: 'Credit' if (credit_col and clean_amount(r.get(credit_col, 0)) > 0) else 'Debit', axis=1)
+        elif amount_col:
             df['Amount'] = df[amount_col].apply(clean_amount)
             df['Type'] = 'Debit'
         else:
-            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            # Last resort: find any numeric column
+            numeric_cols = []
+            for col in df.columns:
+                try:
+                    df[col].apply(lambda x: float(str(x).replace('$', '').replace(',', '')))
+                    numeric_cols.append(col)
+                except:
+                    pass
+            
             if numeric_cols:
                 df['Amount'] = df[numeric_cols[0]].apply(clean_amount)
                 df['Type'] = 'Debit'
             else:
+                st.error("Could not find any amount columns")
                 return None
         
-        # Clean up
-        df = df.dropna(subset=['Date', 'Amount'])
-        df['Amount'] = df['Amount'].apply(lambda x: max(0, float(x)))
+        df['Amount'] = df['Amount'].apply(lambda x: abs(float(x)))
         df = df[df['Amount'] > 0]
+        df = df.dropna(subset=['Date', 'Amount'])
         
-        return df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date').reset_index(drop=True)
+        result = df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date').reset_index(drop=True)
+        st.write(f"[DEBUG] Successfully parsed {len(result)} transactions")
+        return result
     
     except Exception as e:
+        st.error(f"Standardization error: {str(e)}")
         return None
 
-def load_transactions(uploaded_file):
-    """
-    Force reload of data - if file is uploaded, bypass cache and load fresh
-    """
-    if uploaded_file is not None:
-        try:
-            # Check if PDF
-            is_pdf = uploaded_file.type == 'application/pdf' or uploaded_file.name.lower().endswith('.pdf')
-            
-            if is_pdf:
-                # Try PDF extraction
-                df = extract_text_from_pdf(uploaded_file)
-                if df is not None:
-                    standardized = standardize_transactions(df)
-                    if standardized is not None and len(standardized) > 0:
-                        return standardized, "Your uploaded PDF"
-            
-            # Try CSV parsing with multiple strategies
-            encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'ascii']
-            df = None
-            
-            for encoding in encodings:
-                try:
-                    uploaded_file.seek(0)
-                    content = uploaded_file.read().decode(encoding, errors='ignore')
-                    
-                    # Skip PDF headers if present
-                    if content.startswith('%PDF'):
-                        continue
-                    
-                    df = pd.read_csv(StringIO(content), on_bad_lines='skip', dtype=str)
-                    break
-                except Exception:
-                    continue
-            
-            if df is not None and len(df) > 0:
-                standardized = standardize_transactions(df)
-                
-                if standardized is not None and len(standardized) > 0:
-                    return standardized, "Your uploaded statement"
-        
-        except Exception as e:
-            pass
-    
-    return generate_mock_data(), "Mock demo data"
-
+# Header and upload
 col_header, col_upload = st.columns([2, 1])
 
 with col_header:
@@ -345,18 +231,33 @@ with col_header:
 
 with col_upload:
     uploaded_file = st.file_uploader("Upload Bank Statement", type=["csv", "pdf"], label_visibility="collapsed")
-    
-    if uploaded_file is not None:
-        if st.session_state.uploaded_file != uploaded_file:
-            st.cache_data.clear()
-        st.session_state.uploaded_file = uploaded_file
-    
-    if st.session_state.get('uploaded_file') is None:
-        st.caption("Data source: Mock demo data")
-    else:
-        st.caption("Data source: Your uploaded statement")
 
-df, data_source = load_transactions(st.session_state.get('uploaded_file'))
+if uploaded_file is not None:
+    with st.expander("Processing upload...", expanded=True):
+        raw_df = parse_csv_file(uploaded_file)
+        
+        if raw_df is not None:
+            standardized_df = standardize_transactions(raw_df)
+            if standardized_df is not None and len(standardized_df) > 0:
+                st.session_state.uploaded_df = standardized_df
+                st.session_state.use_uploaded = True
+                st.success(f"Loaded {len(standardized_df)} transactions from your statement")
+            else:
+                st.warning("Could not standardize data, using demo")
+                st.session_state.use_uploaded = False
+        else:
+            st.warning("Could not parse file, using demo")
+            st.session_state.use_uploaded = False
+
+# Use uploaded data or mock
+if st.session_state.use_uploaded and st.session_state.uploaded_df is not None:
+    df = st.session_state.uploaded_df
+    data_source = "Your uploaded statement"
+else:
+    df = generate_mock_data()
+    data_source = "Mock demo data"
+
+st.caption(f"Data source: {data_source}")
 
 # Calculate KPIs
 def calculate_kpis():
