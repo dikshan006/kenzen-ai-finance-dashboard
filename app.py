@@ -83,6 +83,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# Initialize session state
+if 'uploaded_file' not in st.session_state:
+    st.session_state.uploaded_file = None
+
 # Generate mock transaction data
 @st.cache_data
 def generate_mock_data():
@@ -289,53 +293,49 @@ def standardize_transactions(df: pd.DataFrame) -> pd.DataFrame:
 
 def load_transactions(uploaded_file):
     """
-    Handle CSV, PDF, or any format intelligently
+    Force reload of data - if file is uploaded, bypass cache and load fresh
     """
-    if uploaded_file is None:
-        return generate_mock_data(), "Mock demo data"
-    
-    try:
-        # Check if PDF
-        is_pdf = uploaded_file.type == 'application/pdf' or uploaded_file.name.lower().endswith('.pdf')
-        
-        if is_pdf:
-            # Try PDF extraction
-            df = extract_text_from_pdf(uploaded_file)
-            if df is not None:
-                standardized = standardize_transactions(df)
-                if standardized is not None and len(standardized) > 0:
-                    return standardized, "Your uploaded PDF"
-        
-        # Try CSV parsing with multiple strategies
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'ascii']
-        df = None
-        
-        for encoding in encodings:
-            try:
-                uploaded_file.seek(0)
-                content = uploaded_file.read().decode(encoding, errors='ignore')
-                
-                # Skip PDF headers if present
-                if content.startswith('%PDF'):
+    if uploaded_file is not None:
+        try:
+            # Check if PDF
+            is_pdf = uploaded_file.type == 'application/pdf' or uploaded_file.name.lower().endswith('.pdf')
+            
+            if is_pdf:
+                # Try PDF extraction
+                df = extract_text_from_pdf(uploaded_file)
+                if df is not None:
+                    standardized = standardize_transactions(df)
+                    if standardized is not None and len(standardized) > 0:
+                        return standardized, "Your uploaded PDF"
+            
+            # Try CSV parsing with multiple strategies
+            encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'ascii']
+            df = None
+            
+            for encoding in encodings:
+                try:
+                    uploaded_file.seek(0)
+                    content = uploaded_file.read().decode(encoding, errors='ignore')
+                    
+                    # Skip PDF headers if present
+                    if content.startswith('%PDF'):
+                        continue
+                    
+                    df = pd.read_csv(StringIO(content), on_bad_lines='skip', dtype=str)
+                    break
+                except Exception:
                     continue
+            
+            if df is not None and len(df) > 0:
+                standardized = standardize_transactions(df)
                 
-                df = pd.read_csv(StringIO(content), on_bad_lines='skip', dtype=str)
-                break
-            except Exception:
-                continue
+                if standardized is not None and len(standardized) > 0:
+                    return standardized, "Your uploaded statement"
         
-        if df is None or len(df) == 0:
-            return generate_mock_data(), "Mock demo data"
-        
-        standardized = standardize_transactions(df)
-        
-        if standardized is not None and len(standardized) > 0:
-            return standardized, "Your uploaded statement"
-        else:
-            return generate_mock_data(), "Mock demo data"
+        except Exception as e:
+            pass
     
-    except Exception as e:
-        return generate_mock_data(), "Mock demo data"
+    return generate_mock_data(), "Mock demo data"
 
 col_header, col_upload = st.columns([2, 1])
 
@@ -347,6 +347,8 @@ with col_upload:
     uploaded_file = st.file_uploader("Upload Bank Statement", type=["csv", "pdf"], label_visibility="collapsed")
     
     if uploaded_file is not None:
+        if st.session_state.uploaded_file != uploaded_file:
+            st.cache_data.clear()
         st.session_state.uploaded_file = uploaded_file
     
     if st.session_state.get('uploaded_file') is None:
@@ -354,11 +356,7 @@ with col_upload:
     else:
         st.caption("Data source: Your uploaded statement")
 
-try:
-    df, data_source = load_transactions(st.session_state.get('uploaded_file'))
-except Exception as e:
-    st.error(f"Error parsing statement: {str(e)}\n\nUsing demo data instead.")
-    df, data_source = load_transactions(None)
+df, data_source = load_transactions(st.session_state.get('uploaded_file'))
 
 # Calculate KPIs
 def calculate_kpis():
