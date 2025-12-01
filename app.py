@@ -346,16 +346,16 @@ with col_header:
 with col_upload:
     uploaded_file = st.file_uploader("Upload Bank Statement", type=["csv", "pdf"], label_visibility="collapsed")
     
-    if uploaded_file is None:
-        st.caption("Data source: Mock demo data")
-    elif uploaded_file.type == 'application/pdf' or uploaded_file.name.lower().endswith('.pdf'):
-        st.info("PDF statements not supported. Please export as CSV from your bank.")
+    if uploaded_file is not None:
+        st.session_state.uploaded_file = uploaded_file
+    
+    if st.session_state.get('uploaded_file') is None:
         st.caption("Data source: Mock demo data")
     else:
-        st.caption("Data source: Your uploaded CSV")
+        st.caption("Data source: Your uploaded statement")
 
 try:
-    df, data_source = load_transactions(uploaded_file)
+    df, data_source = load_transactions(st.session_state.get('uploaded_file'))
 except Exception as e:
     st.error(f"Error parsing statement: {str(e)}\n\nUsing demo data instead.")
     df, data_source = load_transactions(None)
