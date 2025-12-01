@@ -77,66 +77,110 @@ def generate_mock_data():
     return pd.DataFrame(transactions)
 
 def parse_csv_file(uploaded_file):
-    """New aggressive CSV parser that works with any column names"""
+    """Bulletproof CSV parser - tries every approach"""
     try:
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'ascii']
+        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'utf-16', 'ascii']
         df = None
         
+        # Try each encoding
         for encoding in encodings:
             try:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding=encoding, on_bad_lines='skip', dtype=str)
-                if len(df) > 0:
+                content = uploaded_file.read()
+                
+                # Skip if it's a PDF
+                if content[:4] == b'%PDF':
+                    st.error("PDF files not supported. Please export as CSV.")
+                    return None
+                
+                # Parse CSV
+                df = pd.read_csv(
+                    io.StringIO(content.decode(encoding)),
+                    on_bad_lines='skip',
+                    dtype=str,
+                    thousands=','
+                )
+                
+                if len(df) > 0 and len(df.columns) > 0:
+                    st.write(f"[DEBUG] Successfully parsed with {encoding} encoding")
                     break
-            except:
+            except Exception as e:
                 continue
         
         if df is None or len(df) == 0:
+            st.error("Could not parse CSV with any encoding")
             return None
         
-        st.write("[DEBUG] CSV loaded. Columns:", df.columns.tolist())
-        st.write("[DEBUG] First row:", df.iloc[0].to_dict() if len(df) > 0 else "No data")
+        # Remove empty rows
+        df = df.dropna(how='all')
+        df = df[df.columns[df.notna().any()]]
+        
+        st.write(f"[DEBUG] Loaded {len(df)} rows, {len(df.columns)} columns")
+        st.write(f"[DEBUG] Columns: {df.columns.tolist()}")
+        st.write(f"[DEBUG] First row:\n{df.iloc[0].to_dict()}")
         
         return df
     except Exception as e:
-        st.error(f"Failed to parse: {str(e)}")
+        st.error(f"Parse error: {str(e)}")
         return None
 
 def standardize_transactions(df):
-    """More aggressive column detection - tries every column combination"""
+    """Smart column detection that works with ANY format"""
     try:
         df = df.copy()
         
-        # Normalize column names
-        df.columns = [col.strip().lower() for col in df.columns]
+        original_cols = df.columns.tolist()
+        df.columns = [str(col).strip().lower().replace(' ', '_') for col in df.columns]
         
-        # Debug: show what columns we have
-        st.write("[DEBUG] Normalized columns:", df.columns.tolist())
+        st.write(f"[DEBUG] Normalized columns: {df.columns.tolist()}")
         
-        # Find date column - check every column
+        df = df.dropna(how='all')
+        df = df[~df.iloc[:, 0].astype(str).str.contains('date|posted|transaction', case=False, na=False).fillna(False)]
+        
+        if len(df) == 0:
+            st.error("No data rows found after cleaning")
+            return None
+        
+        # ========== DATE COLUMN ==========
         date_col = None
+        date_keywords = ['date', 'posted', 'trans_date', 'post_date', 'transaction_date', 'tdate', 'posting', 'post']
+        
         for col in df.columns:
-            if any(x in col for x in ['date', 'posted', 'trans', 'tdate', 'post', 'transaction']):
+            if any(keyword in col for keyword in date_keywords):
                 date_col = col
+                st.write(f"[DEBUG] Found date column: '{col}'")
                 break
         
+        if not date_col and len(df.columns) > 0:
+            # Try to find date in first column
+            test_col = df.columns[0]
+            try:
+                pd.to_datetime(df[test_col].dropna().head(1), errors='coerce')
+                if pd.to_datetime(df[test_col].dropna().head(1), errors='coerce').notna().any():
+                    date_col = test_col
+                    st.write(f"[DEBUG] Inferred date column: '{test_col}'")
+            except:
+                pass
+        
         if not date_col:
-            date_col = df.columns[0]
+            st.error(f"Could not find date column. Available: {df.columns.tolist()}")
+            return None
         
-        st.write(f"[DEBUG] Using '{date_col}' as date column")
-        
-        # Convert to datetime
         df['Date'] = pd.to_datetime(df[date_col], errors='coerce', infer_datetime_format=True)
         df = df.dropna(subset=['Date'])
         
         if len(df) == 0:
-            st.error("No valid dates found")
+            st.error("No valid dates found in data")
             return None
         
-        # Find merchant/description
+        st.write(f"[DEBUG] Found {len(df)} rows with valid dates")
+        
+        # ========== MERCHANT/DESCRIPTION COLUMN ==========
         merchant_col = None
+        merchant_keywords = ['merchant', 'description', 'desc', 'details', 'narration', 'memo', 'payee', 'reference', 'name', 'vendor']
+        
         for col in df.columns:
-            if any(x in col for x in ['merchant', 'description', 'desc', 'details', 'narration', 'memo', 'notes', 'payee']):
+            if any(keyword in col for keyword in merchant_keywords):
                 merchant_col = col
                 break
         
@@ -145,10 +189,12 @@ def standardize_transactions(df):
         else:
             df['Merchant'] = 'Transaction'
         
-        # Find category
+        st.write(f"[DEBUG] Merchant column: {merchant_col or 'Using default'}")
+        
+        # ========== CATEGORY COLUMN ==========
         category_col = None
         for col in df.columns:
-            if 'category' in col:
+            if 'category' in col or 'type' in col:
                 category_col = col
                 break
         
@@ -157,69 +203,83 @@ def standardize_transactions(df):
         else:
             df['Category'] = 'Other'
         
-        # Find amount columns - be aggressive
-        amount_col = None
-        debit_col = None
-        credit_col = None
-        
-        for col in df.columns:
-            if any(x in col for x in ['debit', 'withdrawal', 'out']) and 'card' not in col:
-                debit_col = col
-            if any(x in col for x in ['credit', 'deposit', 'in']) and 'card' not in col:
-                credit_col = col
-            if any(x in col for x in ['amount', 'amt', 'value', 'total', 'transaction']):
-                amount_col = col
-        
-        st.write(f"[DEBUG] debit_col={debit_col}, credit_col={credit_col}, amount_col={amount_col}")
-        
+        # ========== AMOUNT COLUMNS ==========
         def clean_amount(val):
-            if pd.isna(val) or val == '':
-                return 0
-            val_str = str(val).replace('$', '').replace(',', '').strip()
-            val_str = val_str.replace('(', '-').replace(')', '')
+            if pd.isna(val) or val == '' or val == '0':
+                return 0.0
+            val_str = str(val).strip()
+            val_str = val_str.replace('$', '').replace(',', '').replace('(', '-').replace(')', '')
             try:
                 return float(val_str)
             except:
-                return 0
+                return 0.0
+        
+        # Find debit/credit columns
+        debit_col = None
+        credit_col = None
+        amount_col = None
+        
+        for col in df.columns:
+            if 'debit' in col and 'card' not in col:
+                debit_col = col
+            elif 'credit' in col and 'card' not in col:
+                credit_col = col
+            elif any(x in col for x in ['amount', 'amt', 'value', 'total']):
+                amount_col = col
+        
+        st.write(f"[DEBUG] debit={debit_col}, credit={credit_col}, amount={amount_col}")
         
         # Build Amount column
         if debit_col or credit_col:
             df['Amount'] = 0.0
             if debit_col:
-                df['Amount'] += df[debit_col].apply(clean_amount)
+                df['Amount'] = df['Amount'] + df[debit_col].apply(clean_amount)
             if credit_col:
-                df['Amount'] += df[credit_col].apply(clean_amount)
-            df['Type'] = df.apply(lambda r: 'Credit' if (credit_col and clean_amount(r.get(credit_col, 0)) > 0) else 'Debit', axis=1)
+                df['Amount'] = df['Amount'] + df[credit_col].apply(clean_amount)
+            df['Type'] = df.apply(
+                lambda r: 'Credit' if (credit_col and clean_amount(r.get(credit_col, 0)) > 0) else 'Debit',
+                axis=1
+            )
         elif amount_col:
             df['Amount'] = df[amount_col].apply(clean_amount)
             df['Type'] = 'Debit'
         else:
-            # Last resort: find any numeric column
+            # Last resort: find ANY numeric column
             numeric_cols = []
             for col in df.columns:
                 try:
-                    df[col].apply(lambda x: float(str(x).replace('$', '').replace(',', '')))
-                    numeric_cols.append(col)
+                    sample_vals = df[col].dropna().head(3).astype(str)
+                    test_clean = sample_vals.apply(lambda x: float(x.replace('$', '').replace(',', '')))
+                    if test_clean.sum() > 0:
+                        numeric_cols.append(col)
                 except:
                     pass
             
             if numeric_cols:
-                df['Amount'] = df[numeric_cols[0]].apply(clean_amount)
+                amount_col = numeric_cols[0]
+                df['Amount'] = df[amount_col].apply(clean_amount)
                 df['Type'] = 'Debit'
+                st.write(f"[DEBUG] Found numeric column: {amount_col}")
             else:
-                st.error("Could not find any amount columns")
+                st.error(f"Could not find amount. Columns: {df.columns.tolist()}")
                 return None
         
+        # Clean up amounts
         df['Amount'] = df['Amount'].apply(lambda x: abs(float(x)))
         df = df[df['Amount'] > 0]
         df = df.dropna(subset=['Date', 'Amount'])
         
         result = df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date').reset_index(drop=True)
-        st.write(f"[DEBUG] Successfully parsed {len(result)} transactions")
+        
+        st.write(f"[DEBUG] Successfully created {len(result)} transactions")
+        st.write(f"[DEBUG] Sample:\n{result.head(3)}")
+        
         return result
     
     except Exception as e:
         st.error(f"Standardization error: {str(e)}")
+        import traceback
+        st.write(traceback.format_exc())
         return None
 
 # Header and upload
