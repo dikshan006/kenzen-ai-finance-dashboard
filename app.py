@@ -7,7 +7,7 @@ import plotly.express as px
 import io
 import re
 from io import StringIO
-import PyPDF2
+from pypdf import PdfReader
 
 # Page config
 st.set_page_config(page_title="KenZen AI Finance Dashboard", layout="wide", initial_sidebar_state="collapsed")
@@ -35,6 +35,7 @@ if 'use_uploaded' not in st.session_state:
     st.session_state.use_uploaded = False
 
 def generate_mock_data():
+    """Generate realistic mock transaction data for demo"""
     np.random.seed(42)
     dates = [datetime.now() - timedelta(days=x) for x in range(90)]
     dates.reverse()
@@ -77,211 +78,155 @@ def generate_mock_data():
     
     return pd.DataFrame(transactions)
 
+def parse_pdf_file(uploaded_file):
+    """Extract transactions from PDF bank statement"""
+    try:
+        reader = PdfReader(uploaded_file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text()
+        
+        # Parse transactions using regex patterns
+        # Pattern: Date, Description/Merchant, Amount
+        transaction_pattern = r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s+(.+?)\s+(\d+[,.]?\d*\.?\d{0,2})'
+        transactions = []
+        
+        lines = text.split('\n')
+        for line in lines:
+            # Look for date patterns
+            date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})', line)
+            if date_match:
+                # Extract amount (look for currency amounts)
+                amount_match = re.search(r'([\d,]+\.?\d{0,2})\s*(?:DR|CR|Debit|Credit)?', line)
+                if amount_match:
+                    date_str = date_match.group(1)
+                    merchant = line.split(date_str)[-1].split(amount_match.group(1))[0].strip()
+                    amount_str = amount_match.group(1).replace(',', '')
+                    
+                    if merchant and amount_str:
+                        try:
+                            date_obj = pd.to_datetime(date_str, format='%m/%d/%Y', errors='coerce')
+                            if pd.isna(date_obj):
+                                date_obj = pd.to_datetime(date_str, format='%d/%m/%Y', errors='coerce')
+                            
+                            if not pd.isna(date_obj):
+                                transactions.append({
+                                    'Date': date_obj,
+                                    'Merchant': merchant[:50],
+                                    'Amount': float(amount_str),
+                                    'Type': 'Credit' if 'CR' in line or 'Credit' in line else 'Debit'
+                                })
+                        except:
+                            pass
+        
+        if transactions:
+            df = pd.DataFrame(transactions)
+            df['Category'] = 'Other'
+            return df[['Date', 'Merchant', 'Category', 'Amount', 'Type']]
+        return None
+    except Exception as e:
+        return None
+
 def parse_csv_file(uploaded_file):
-    """Parse CSV and PDF bank statements - extracts transaction data"""
+    """Parse CSV bank statements with intelligent column detection"""
     try:
         uploaded_file.seek(0)
         content = uploaded_file.read()
         
-        if content[:4] == b'%PDF':
-            return parse_pdf_file(content)
-        
-        # CSV parsing
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'utf-16', 'ascii']
+        # Try multiple encodings
+        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'utf-16']
         df = None
         
         for encoding in encodings:
             try:
                 df = pd.read_csv(
-                    io.StringIO(content.decode(encoding)),
+                    io.BytesIO(content),
+                    encoding=encoding,
                     on_bad_lines='skip',
                     dtype=str,
                     thousands=','
                 )
-                
                 if len(df) > 0 and len(df.columns) > 0:
-                    st.write(f"[DEBUG] CSV parsed with {encoding}")
                     break
             except:
                 continue
         
         if df is None or len(df) == 0:
-            st.error("Could not parse CSV")
             return None
         
         df = df.dropna(how='all')
         df = df[df.columns[df.notna().any()]]
         
-        st.write(f"[DEBUG] {len(df)} rows, {len(df.columns)} columns")
-        st.write(f"[DEBUG] Columns: {df.columns.tolist()}")
-        
         return df
     except Exception as e:
-        st.error(f"Parse error: {str(e)}")
-        return None
-
-def parse_pdf_file(pdf_content):
-    """Extract transactions from PDF bank statement"""
-    try:
-        pdf_file = io.BytesIO(pdf_content)
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        
-        st.write(f"[DEBUG] PDF has {len(pdf_reader.pages)} pages")
-        
-        # Extract text from all pages
-        full_text = ""
-        for page_num, page in enumerate(pdf_reader.pages):
-            text = page.extract_text()
-            full_text += text + "\n"
-        
-        st.write(f"[DEBUG] Extracted {len(full_text)} characters")
-        
-        transactions = []
-        
-        # Common patterns in bank statements:
-        # Date patterns: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY
-        date_pattern = r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})'
-        
-        # Amount pattern: $123.45 or 123.45
-        amount_pattern = r'\$?(\d+[,.]?\d*[,.]?\d*)'
-        
-        lines = full_text.split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line or len(line) < 10:
-                continue
-            
-            # Skip header/footer rows
-            if any(skip in line.lower() for skip in ['total', 'balance', 'account', 'statement', 'page']):
-                continue
-            
-            # Try to find date
-            date_match = re.search(date_pattern, line)
-            if not date_match:
-                continue
-            
-            # Try to extract amount (usually at end of line)
-            amounts = re.findall(r'\d+[,.]?\d{0,2}', line)
-            if not amounts:
-                continue
-            
-            try:
-                transaction_date = pd.to_datetime(date_match.group(1), infer_datetime_format=True)
-                amount = float(amounts[-1].replace(',', ''))
-                
-                # Extract merchant name (between date and amount)
-                merchant = line.replace(date_match.group(0), '').strip()
-                for amt in amounts:
-                    merchant = merchant.replace(amt, '').strip()
-                merchant = merchant[:50] if merchant else 'Transaction'
-                
-                if amount > 0:
-                    transactions.append({
-                        'Date': transaction_date,
-                        'Merchant': merchant,
-                        'Amount': amount,
-                        'Type': 'Debit'
-                    })
-                    st.write(f"[DEBUG] Found: {transaction_date.date()} | {merchant} | ${amount}")
-            except:
-                continue
-        
-        if not transactions:
-            st.warning("Could not extract transactions from PDF")
-            return None
-        
-        df = pd.DataFrame(transactions)
-        st.write(f"[DEBUG] Extracted {len(df)} transactions from PDF")
-        return df
-        
-    except ImportError:
-        st.error("PyPDF2 not installed. Please use CSV export instead.")
-        return None
-    except Exception as e:
-        st.error(f"PDF parsing error: {str(e)}")
         return None
 
 def standardize_transactions(df):
-    """Smart column detection that works with ANY format"""
+    """Smart column detection that works with ANY CSV format"""
     try:
-        df = df.copy()
-        
-        original_cols = df.columns.tolist()
-        df.columns = [str(col).strip().lower().replace(' ', '_') for col in df.columns]
-        
-        st.write(f"[DEBUG] Normalized columns: {df.columns.tolist()}")
-        
-        df = df.dropna(how='all')
-        df = df[~df.iloc[:, 0].astype(str).str.contains('date|posted|transaction', case=False, na=False).fillna(False)]
-        
-        if len(df) == 0:
-            st.error("No data rows found after cleaning")
+        if df is None or len(df) == 0:
             return None
         
-        # ========== DATE COLUMN ==========
+        df = df.copy()
+        
+        # Normalize column names
+        df.columns = [str(col).strip().lower().replace(' ', '_').replace('.', '') for col in df.columns]
+        
+        # Remove header rows
+        df = df.dropna(how='all')
+        df = df[~df.iloc[:, 0].astype(str).str.contains('date|posted|transaction|description', case=False, na=False).fillna(False)]
+        
+        if len(df) == 0:
+            return None
+        
+        # Find Date column
         date_col = None
-        date_keywords = ['date', 'posted', 'trans_date', 'post_date', 'transaction_date', 'tdate', 'posting', 'post']
+        date_keywords = ['date', 'posted', 'trans_date', 'post_date', 'transaction_date', 'tdate']
         
         for col in df.columns:
             if any(keyword in col for keyword in date_keywords):
                 date_col = col
-                st.write(f"[DEBUG] Found date column: '{col}'")
                 break
         
-        if not date_col and len(df.columns) > 0:
-            # Try to find date in first column
-            test_col = df.columns[0]
+        # If not found, try first column
+        if not date_col:
             try:
-                pd.to_datetime(df[test_col].dropna().head(1), errors='coerce')
-                if pd.to_datetime(df[test_col].dropna().head(1), errors='coerce').notna().any():
-                    date_col = test_col
-                    st.write(f"[DEBUG] Inferred date column: '{test_col}'")
+                test_dates = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                if test_dates.notna().sum() > len(df) * 0.5:
+                    date_col = df.columns[0]
             except:
                 pass
         
         if not date_col:
-            st.error(f"Could not find date column. Available: {df.columns.tolist()}")
             return None
         
         df['Date'] = pd.to_datetime(df[date_col], errors='coerce', infer_datetime_format=True)
         df = df.dropna(subset=['Date'])
         
         if len(df) == 0:
-            st.error("No valid dates found in data")
             return None
         
-        st.write(f"[DEBUG] Found {len(df)} rows with valid dates")
-        
-        # ========== MERCHANT/DESCRIPTION COLUMN ==========
+        # Find Merchant column
         merchant_col = None
-        merchant_keywords = ['merchant', 'description', 'desc', 'details', 'narration', 'memo', 'payee', 'reference', 'name', 'vendor']
+        merchant_keywords = ['merchant', 'description', 'desc', 'details', 'narration', 'memo', 'payee', 'vendor', 'name']
         
         for col in df.columns:
             if any(keyword in col for keyword in merchant_keywords):
                 merchant_col = col
                 break
         
-        if merchant_col:
-            df['Merchant'] = df[merchant_col].astype(str).fillna('Unknown').str.strip()
-        else:
-            df['Merchant'] = 'Transaction'
+        df['Merchant'] = df[merchant_col].astype(str).fillna('Unknown').str.strip() if merchant_col else 'Transaction'
         
-        st.write(f"[DEBUG] Merchant column: {merchant_col or 'Using default'}")
-        
-        # ========== CATEGORY COLUMN ==========
+        # Find Category column
         category_col = None
         for col in df.columns:
-            if 'category' in col or 'type' in col:
+            if 'category' in col:
                 category_col = col
                 break
         
-        if category_col:
-            df['Category'] = df[category_col].astype(str).fillna('Other').str.strip()
-        else:
-            df['Category'] = 'Other'
+        df['Category'] = df[category_col].astype(str).fillna('Other').str.strip() if category_col else 'Other'
         
-        # ========== AMOUNT COLUMNS ==========
+        # Find Amount columns
         def clean_amount(val):
             if pd.isna(val) or val == '' or val == '0':
                 return 0.0
@@ -292,7 +237,6 @@ def standardize_transactions(df):
             except:
                 return 0.0
         
-        # Find debit/credit columns
         debit_col = None
         credit_col = None
         amount_col = None
@@ -302,10 +246,8 @@ def standardize_transactions(df):
                 debit_col = col
             elif 'credit' in col and 'card' not in col:
                 credit_col = col
-            elif any(x in col for x in ['amount', 'amt', 'value', 'total']):
+            elif any(x in col for x in ['amount', 'amt', 'value', 'total', 'withdrawal', 'deposit']):
                 amount_col = col
-        
-        st.write(f"[DEBUG] debit={debit_col}, credit={credit_col}, amount={amount_col}")
         
         # Build Amount column
         if debit_col or credit_col:
@@ -322,42 +264,33 @@ def standardize_transactions(df):
             df['Amount'] = df[amount_col].apply(clean_amount)
             df['Type'] = 'Debit'
         else:
-            # Last resort: find ANY numeric column
-            numeric_cols = []
+            # Find any numeric column
             for col in df.columns:
                 try:
-                    sample_vals = df[col].dropna().head(3).astype(str)
-                    test_clean = sample_vals.apply(lambda x: float(x.replace('$', '').replace(',', '')))
-                    if test_clean.sum() > 0:
-                        numeric_cols.append(col)
+                    test_vals = df[col].dropna().head(5).astype(str)
+                    numeric_vals = test_vals.apply(lambda x: clean_amount(x))
+                    if numeric_vals.sum() > 0 and numeric_vals.max() > 1:
+                        df['Amount'] = df[col].apply(clean_amount)
+                        df['Type'] = 'Debit'
+                        amount_col = col
+                        break
                 except:
                     pass
             
-            if numeric_cols:
-                amount_col = numeric_cols[0]
-                df['Amount'] = df[amount_col].apply(clean_amount)
-                df['Type'] = 'Debit'
-                st.write(f"[DEBUG] Found numeric column: {amount_col}")
-            else:
-                st.error(f"Could not find amount. Columns: {df.columns.tolist()}")
+            if amount_col is None:
                 return None
         
-        # Clean up amounts
         df['Amount'] = df['Amount'].apply(lambda x: abs(float(x)))
         df = df[df['Amount'] > 0]
         df = df.dropna(subset=['Date', 'Amount'])
         
+        if len(df) == 0:
+            return None
+        
         result = df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date').reset_index(drop=True)
-        
-        st.write(f"[DEBUG] Successfully created {len(result)} transactions")
-        st.write(f"[DEBUG] Sample:\n{result.head(3)}")
-        
         return result
     
     except Exception as e:
-        st.error(f"Standardization error: {str(e)}")
-        import traceback
-        st.write(traceback.format_exc())
         return None
 
 # Header and upload
@@ -368,24 +301,19 @@ with col_header:
     st.markdown("Personal finance analytics with spending insights and anomaly detection")
 
 with col_upload:
-    uploaded_file = st.file_uploader("Upload Bank Statement", type=["csv", "pdf"], label_visibility="collapsed")
+    uploaded_file = st.file_uploader("Upload Bank Statement", type=["csv", "pdf"], label_visibility="collapsed", help="Export your bank statement as CSV or PDF")
 
+# Process upload
 if uploaded_file is not None:
-    with st.expander("Processing upload...", expanded=True):
+    if uploaded_file.name.endswith('.pdf'):
+        standardized_df = parse_pdf_file(uploaded_file)
+    else:
         raw_df = parse_csv_file(uploaded_file)
-        
-        if raw_df is not None:
-            standardized_df = standardize_transactions(raw_df)
-            if standardized_df is not None and len(standardized_df) > 0:
-                st.session_state.uploaded_df = standardized_df
-                st.session_state.use_uploaded = True
-                st.success(f"Loaded {len(standardized_df)} transactions from your statement")
-            else:
-                st.warning("Could not standardize data, using demo")
-                st.session_state.use_uploaded = False
-        else:
-            st.warning("Could not parse file, using demo")
-            st.session_state.use_uploaded = False
+        standardized_df = standardize_transactions(raw_df) if raw_df is not None else None
+    
+    if standardized_df is not None and len(standardized_df) > 0:
+        st.session_state.uploaded_df = standardized_df
+        st.session_state.use_uploaded = True
 
 # Use uploaded data or mock
 if st.session_state.use_uploaded and st.session_state.uploaded_df is not None:
@@ -393,42 +321,36 @@ if st.session_state.use_uploaded and st.session_state.uploaded_df is not None:
     data_source = "Your uploaded statement"
 else:
     df = generate_mock_data()
-    data_source = "Mock demo data"
+    data_source = "Demo data"
 
 st.caption(f"Data source: {data_source}")
 
 # Calculate KPIs
-def calculate_kpis():
-    base_balance = 5000
-    credits = df[df['Type'] == 'Credit']['Amount'].sum()
-    debits = df[df['Type'] == 'Debit']['Amount'].sum()
-    current_balance = base_balance + credits - debits
-    
-    # Monthly spending (current month)
-    current_month = df[df['Date'].dt.month == datetime.now().month]
-    monthly_spending = current_month[current_month['Type'] == 'Debit']['Amount'].sum()
-    
-    # Previous month spending
-    last_month_date = datetime.now() - timedelta(days=30)
-    prev_month = df[(df['Date'].dt.month == last_month_date.month) & (df['Type'] == 'Debit')]
-    prev_spending = prev_month['Amount'].sum()
-    
-    spending_change = ((monthly_spending - prev_spending) / prev_spending * 100) if prev_spending > 0 else 0
-    
-    total_savings = credits - debits
-    transaction_count = len(df)
-    
-    return {
-        'balance': current_balance,
-        'monthly_spending': monthly_spending,
-        'spending_change': spending_change,
-        'total_savings': total_savings,
-        'transaction_count': transaction_count,
-        'total_credits': credits,
-        'total_debits': debits
-    }
+base_balance = 5000
+credits = df[df['Type'] == 'Credit']['Amount'].sum()
+debits = df[df['Type'] == 'Debit']['Amount'].sum()
+current_balance = base_balance + credits - debits
 
-kpis = calculate_kpis()
+current_month = df[df['Date'].dt.month == datetime.now().month]
+monthly_spending = current_month[current_month['Type'] == 'Debit']['Amount'].sum()
+
+last_month_date = datetime.now() - timedelta(days=30)
+prev_month = df[(df['Date'].dt.month == last_month_date.month) & (df['Type'] == 'Debit')]
+prev_spending = prev_month['Amount'].sum()
+spending_change = ((monthly_spending - prev_spending) / prev_spending * 100) if prev_spending > 0 else 0
+
+total_savings = credits - debits
+
+# Display KPIs
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Account Balance", f"${current_balance:,.2f}")
+with col2:
+    st.metric("Monthly Spending", f"${monthly_spending:,.2f}", f"{spending_change:+.1f}%")
+with col3:
+    st.metric("Total Savings", f"${total_savings:,.2f}")
+with col4:
+    st.metric("Transactions", len(df))
 
 st.divider()
 
@@ -529,63 +451,55 @@ def detect_anomalies():
 anomalies_df = detect_anomalies()
 
 if anomalies_df is not None and len(anomalies_df) > 0:
-    st.warning(f"Found {len(anomalies_df)} anomalous transactions exceeding 2x category average")
     st.dataframe(anomalies_df, use_container_width=True, hide_index=True)
 else:
-    st.success("No anomalies detected. Spending within normal ranges.")
+    st.info("No anomalies detected in your spending")
 
 st.divider()
 
-st.markdown("## AI-Powered Insights")
+st.markdown("## AI Insights")
 
 def generate_insights():
-    spending_by_cat = df[df['Type'] == 'Debit'].groupby('Category')['Amount'].sum()
-    biggest_category = spending_by_cat.idxmax()
-    biggest_amount = spending_by_cat.max()
+    debit_df = df[df['Type'] == 'Debit']
     
-    credit_ratio = kpis['total_credits'] / (kpis['total_credits'] + kpis['total_debits']) * 100 if (kpis['total_credits'] + kpis['total_debits']) > 0 else 0
+    insights = []
     
-    avg_dining = df[(df['Category'] == 'Dining') & (df['Type'] == 'Debit')]['Amount'].mean()
-    potential_savings = avg_dining * 0.3 * 30 if avg_dining > 0 else 0
+    # Biggest spending category
+    top_category = debit_df.groupby('Category')['Amount'].sum().idxmax()
+    top_amount = debit_df.groupby('Category')['Amount'].sum().max()
+    insights.append(f"Top spending category is {top_category} at ${top_amount:.2f}")
     
-    recent_spending = df[(df['Date'] > datetime.now() - timedelta(days=14)) & (df['Type'] == 'Debit')]['Amount'].sum()
-    earlier_spending = df[(df['Date'] > datetime.now() - timedelta(days=28)) & (df['Date'] <= datetime.now() - timedelta(days=14)) & (df['Type'] == 'Debit')]['Amount'].sum()
-    trend = "increasing" if recent_spending > earlier_spending else "decreasing"
+    # Savings potential
+    average_daily = debit_df['Amount'].mean()
+    insights.append(f"Your average transaction is ${average_daily:.2f}")
     
-    insights = [
-        f"Top spending category: {biggest_category} at ${biggest_amount:.2f}. Consider setting spending limits.",
-        f"Credit ratio: {credit_ratio:.1f}%. {('Strong income flow' if credit_ratio > 40 else 'Higher spending relative to income')}.",
-        f"Potential savings: ${potential_savings:.2f}/month by reducing dining expenses by 30%.",
-        f"Spending trend: {trend.capitalize()} over the past two weeks.",
-        f"Total savings: ${kpis['total_savings']:.2f}. Consider automating transfers to savings."
-    ]
+    # Spending trend
+    recent_week = df[df['Date'] > datetime.now() - timedelta(days=7)][df['Type'] == 'Debit']['Amount'].sum()
+    insights.append(f"Last 7 days spending: ${recent_week:.2f}")
+    
+    # Frequency analysis
+    transaction_count = len(debit_df)
+    avg_per_day = transaction_count / 90
+    insights.append(f"You average {avg_per_day:.1f} transactions per day")
+    
+    # Largest transaction
+    largest = debit_df['Amount'].max()
+    insights.append(f"Your largest transaction was ${largest:.2f}")
     
     return insights
 
 insights = generate_insights()
 
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    for insight in insights[:3]:
-        st.info(insight)
-
-with col2:
-    for insight in insights[3:]:
-        st.info(insight)
+for insight in insights:
+    st.info(insight)
 
 st.divider()
 
 st.markdown("## Recent Transactions")
-recent_tx = df.sort_values('Date', ascending=False).head(20).copy()
-recent_tx['Date'] = recent_tx['Date'].dt.strftime('%Y-%m-%d')
-recent_tx['Amount'] = recent_tx['Amount'].apply(lambda x: f"${x:.2f}")
 
-st.dataframe(
-    recent_tx[['Date', 'Merchant', 'Category', 'Amount', 'Type']],
-    use_container_width=True,
-    hide_index=True
-)
+recent_tx = df.sort_values('Date', ascending=False).head(20)
+display_tx = recent_tx.copy()
+display_tx['Date'] = display_tx['Date'].dt.strftime('%Y-%m-%d')
+display_tx['Amount'] = display_tx['Amount'].apply(lambda x: f"${x:.2f}")
 
-st.markdown("---")
-st.markdown("KenZen AI Finance Dashboard • Powered by Streamlit")
+st.dataframe(display_tx, use_container_width=True, hide_index=True)
