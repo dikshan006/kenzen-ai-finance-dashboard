@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
 import io
-from pandas.errors import ParserError
+import re
+from io import StringIO
 
 # Page config
 st.set_page_config(page_title="KenZen AI Finance Dashboard", layout="wide", initial_sidebar_state="collapsed")
@@ -143,157 +144,198 @@ def generate_mock_data():
     
     return pd.DataFrame(transactions)
 
+def extract_text_from_pdf(uploaded_file):
+    """
+    Extract text from PDF and convert to CSV-like format.
+    Returns dataframe or None if parsing fails.
+    """
+    try:
+        import PyPDF2
+        uploaded_file.seek(0)
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        
+        # Try to parse as table-like text
+        lines = text.split('\n')
+        data = []
+        
+        for line in lines:
+            # Look for date patterns
+            date_match = re.search(r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}', line)
+            amount_match = re.search(r'\$?\d+[.,]\d{2}', line)
+            
+            if date_match and amount_match:
+                parts = line.split()
+                data.append(parts)
+        
+        if data:
+            df = pd.DataFrame(data)
+            return df
+        return None
+    except Exception:
+        return None
+
 def standardize_transactions(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalizes any bank CSV into standard schema:
-    [Date, Merchant, Category, Amount, Type]
+    Complete rewrite: Handles any CSV format, extracts date/merchant/amount intelligently
     """
     try:
         df = df.copy()
         
-        # Step 1: Standardize column names (strip whitespace, lowercase for detection)
+        # Clean and standardize columns
         df.columns = df.columns.str.strip()
-        original_cols = df.columns.tolist()
         
-        # Step 2: Find and rename Date column
+        # Find Date column with flexible patterns
         date_col = None
-        date_patterns = ['date', 'transaction date', 'posted date', 'posting date', 'tdate', 'post', 'trans date']
         for col in df.columns:
-            col_lower = col.lower().strip()
-            if col_lower in date_patterns or any(pattern in col_lower for pattern in date_patterns):
+            col_lower = col.lower()
+            if any(x in col_lower for x in ['date', 'posted', 'trans', 'tdate', 'post']):
                 date_col = col
                 break
         
-        if not date_col and len(df.columns) > 0:
-            # If no date found, try first column as fallback
+        if not date_col and len(df) > 0:
             date_col = df.columns[0]
         
         if date_col:
-            df['Date'] = pd.to_datetime(df[date_col], errors='coerce', infer_datetime_format=True)
-            df = df.dropna(subset=['Date'])
+            try:
+                df['Date'] = pd.to_datetime(df[date_col], errors='coerce', infer_datetime_format=True)
+                df = df.dropna(subset=['Date'])
+            except:
+                df['Date'] = pd.to_datetime(df[date_col], format='%m/%d/%Y', errors='coerce')
+                df = df.dropna(subset=['Date'])
         else:
-            st.error(f"Could not find a Date column. Columns: {', '.join(original_cols[:5])}")
             return None
         
-        # Step 3: Find and rename Merchant/Description column
+        # Find Merchant/Description with flexible patterns
         merchant_col = None
-        merchant_patterns = ['description', 'details', 'merchant', 'narration', 'transaction desc', 'memo', 'name', 'desc']
         for col in df.columns:
-            col_lower = col.lower().strip()
-            if col_lower in merchant_patterns or any(pattern in col_lower for pattern in merchant_patterns):
+            col_lower = col.lower()
+            if any(x in col_lower for x in ['merchant', 'description', 'desc', 'details', 'narration', 'memo']):
                 merchant_col = col
                 break
         
         if merchant_col:
-            df['Merchant'] = df[merchant_col].astype(str).fillna('Unknown')
+            df['Merchant'] = df[merchant_col].astype(str).fillna('Unknown').str.strip()
         else:
-            df['Merchant'] = 'Unknown'
+            df['Merchant'] = 'Transaction'
         
-        # Step 4: Find Category column or create default
+        # Find Category or default
         category_col = None
         for col in df.columns:
-            if 'category' in col.lower().strip():
+            if 'category' in col.lower():
                 category_col = col
                 break
         
         if category_col:
-            df['Category'] = df[category_col].astype(str).fillna('Uncategorized')
+            df['Category'] = df[category_col].astype(str).fillna('Other').str.strip()
         else:
-            df['Category'] = 'Uncategorized'
+            df['Category'] = 'Other'
         
-        # Step 5: Find Amount/Debit/Credit columns with robust detection
         amount_col = None
         debit_col = None
         credit_col = None
         
-        amount_patterns = ['amount', 'amt', 'value', 'transaction amount', 'total', 'balance']
-        debit_patterns = ['debit', 'withdrawal', 'paid', 'out', 'expense']
-        credit_patterns = ['credit', 'deposit', 'received', 'in', 'income']
-        
         for col in df.columns:
-            col_lower = col.lower().strip()
-            if any(pattern in col_lower for pattern in debit_patterns) and 'card' not in col_lower:
+            col_lower = col.lower()
+            
+            if any(x in col_lower for x in ['debit', 'withdrawal', 'out', 'paid']) and 'card' not in col_lower:
                 debit_col = col
-            if any(pattern in col_lower for pattern in credit_patterns) and 'card' not in col_lower:
+            if any(x in col_lower for x in ['credit', 'deposit', 'in', 'income']) and 'card' not in col_lower:
                 credit_col = col
-            if any(pattern in col_lower for pattern in amount_patterns) and debit_col is None and credit_col is None:
+            if any(x in col_lower for x in ['amount', 'amt', 'value', 'total']) and amount_col is None:
                 amount_col = col
         
-        # If we found debit/credit, use them
+        # Convert amounts to numeric, handling currency symbols
+        def clean_amount(val):
+            if pd.isna(val):
+                return 0
+            val_str = str(val).replace('$', '').replace(',', '').strip()
+            try:
+                return abs(float(val_str))
+            except:
+                return 0
+        
         if debit_col is not None or credit_col is not None:
-            debit_vals = pd.to_numeric(df.get(debit_col, 0), errors='coerce').fillna(0).abs()
-            credit_vals = pd.to_numeric(df.get(credit_col, 0), errors='coerce').fillna(0).abs()
-            df['Amount'] = debit_vals + credit_vals
+            debit_vals = df[debit_col].apply(clean_amount) if debit_col is not None else 0
+            credit_vals = df[credit_col].apply(clean_amount) if credit_col is not None else 0
             
+            df['Amount'] = debit_vals + credit_vals
             df['Type'] = df.apply(
-                lambda row: 'Debit' if (debit_col and row.get(debit_col, 0) != 0) else 'Credit',
+                lambda row: 'Debit' if (debit_col and clean_amount(row.get(debit_col, 0)) > 0) else 'Credit',
                 axis=1
             )
-        elif amount_col:
-            df['Amount'] = pd.to_numeric(df[amount_col], errors='coerce').abs()
+        elif amount_col is not None:
+            df['Amount'] = df[amount_col].apply(clean_amount)
             df['Type'] = 'Debit'
         else:
-            st.error(f"Could not find Amount columns. Available: {', '.join(original_cols[:5])}")
-            return None
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if numeric_cols:
+                df['Amount'] = df[numeric_cols[0]].apply(clean_amount)
+                df['Type'] = 'Debit'
+            else:
+                return None
         
-        # Step 6: Clean up
+        # Clean up
         df = df.dropna(subset=['Date', 'Amount'])
-        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').abs()
+        df['Amount'] = df['Amount'].apply(lambda x: max(0, float(x)))
         df = df[df['Amount'] > 0]
         
-        return df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date')
+        return df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date').reset_index(drop=True)
     
     except Exception as e:
-        st.error(f"Standardization error: {str(e)[:80]}")
         return None
 
 def load_transactions(uploaded_file):
     """
-    Load transactions from uploaded file or use mock data.
-    Returns: (dataframe, source_label)
+    Handle CSV, PDF, or any format intelligently
     """
     if uploaded_file is None:
-        return generate_mock_data(), "Mock demo data (KenZen simulator)"
-    
-    # Check if file is PDF
-    if uploaded_file.type == 'application/pdf' or uploaded_file.name.lower().endswith('.pdf'):
-        st.warning("PDF statements not supported. Please export as CSV from your bank.")
-        return generate_mock_data(), "Mock demo data (PDF not supported)"
+        return generate_mock_data(), "Mock demo data"
     
     try:
-        # Try multiple encoding strategies
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
+        # Check if PDF
+        is_pdf = uploaded_file.type == 'application/pdf' or uploaded_file.name.lower().endswith('.pdf')
+        
+        if is_pdf:
+            # Try PDF extraction
+            df = extract_text_from_pdf(uploaded_file)
+            if df is not None:
+                standardized = standardize_transactions(df)
+                if standardized is not None and len(standardized) > 0:
+                    return standardized, "Your uploaded PDF"
+        
+        # Try CSV parsing with multiple strategies
+        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'ascii']
         df = None
         
         for encoding in encodings:
             try:
                 uploaded_file.seek(0)
-                df = pd.read_csv(
-                    uploaded_file, 
-                    encoding=encoding,
-                    on_bad_lines='skip',
-                    engine='python',  # use python engine for more flexible parsing
-                    dtype=str  # read all as strings first to avoid type issues
-                )
+                content = uploaded_file.read().decode(encoding, errors='ignore')
+                
+                # Skip PDF headers if present
+                if content.startswith('%PDF'):
+                    continue
+                
+                df = pd.read_csv(StringIO(content), on_bad_lines='skip', dtype=str)
                 break
             except Exception:
                 continue
         
-        if df is None:
-            st.error("Could not parse CSV with any encoding. Please verify file format.")
-            return generate_mock_data(), "Mock demo data (encoding error)"
+        if df is None or len(df) == 0:
+            return generate_mock_data(), "Mock demo data"
         
-        # Standardize the transactions
-        standardized_df = standardize_transactions(df)
+        standardized = standardize_transactions(df)
         
-        if standardized_df is None:
-            return generate_mock_data(), "Mock demo data (column mapping failed)"
-        
-        return standardized_df, "Your uploaded CSV"
+        if standardized is not None and len(standardized) > 0:
+            return standardized, "Your uploaded statement"
+        else:
+            return generate_mock_data(), "Mock demo data"
     
     except Exception as e:
-        st.error(f"Error parsing CSV: {str(e)[:100]}")
-        return generate_mock_data(), "Mock demo data (parse error)"
+        return generate_mock_data(), "Mock demo data"
 
 col_header, col_upload = st.columns([2, 1])
 
