@@ -166,42 +166,43 @@ def parse_pdf_file(uploaded_file):
         st.error(f"PDF parsing error: {e}")
         return None
 
-
 def parse_csv_file(uploaded_file):
-    """Parse CSV bank statements with intelligent column detection"""
+    """Parse CSV bank statements with robust but simple logic."""
     try:
+        # Always rewind the file pointer
         uploaded_file.seek(0)
-        content = uploaded_file.read()
 
-        encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252", "utf-16"]
-        df = None
+        # First attempt: default encoding (most banks)
+        try:
+            df = pd.read_csv(
+                uploaded_file,
+                dtype=str,
+                on_bad_lines="skip"
+            )
+        except Exception:
+            # Second attempt: latin1 for weird encodings
+            uploaded_file.seek(0)
+            df = pd.read_csv(
+                uploaded_file,
+                dtype=str,
+                encoding="latin1",
+                on_bad_lines="skip"
+            )
 
-        for encoding in encodings:
-            try:
-                # Decode to text, then wrap in StringIO
-                text = content.decode(encoding)
-                df = pd.read_csv(
-                    StringIO(text),
-                    on_bad_lines="skip",
-                    dtype=str,
-                    thousands=",",
-                )
-                if len(df) > 0 and len(df.columns) > 0:
-                    break
-            except Exception:
-                continue
-
-        if df is None or len(df) == 0:
-            st.error("Could not parse CSV")
+        if df is None or df.empty:
+            st.error("CSV appears to be empty.")
             return None
 
+        # Drop completely empty rows and columns
         df = df.dropna(how="all")
-        df = df[df.columns[df.notna().any()]]
+        df = df.loc[:, df.notna().any()]
 
         return df
+
     except Exception as e:
         st.error(f"CSV parsing error: {e}")
         return None
+
 
 
 def standardize_transactions(df):
