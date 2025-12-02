@@ -343,12 +343,13 @@ dining_mean = (
 dining_savings = dining_mean * 0.3 * 30 if dining_mean > 0 else 0.0
 
 insights = [
-    f"Your highest spending category is <strong>{top_cat}</strong> at <strong>${top_cat_amt:,.2f}</strong>. This is the primary lever for budget control.",
-    f"Spending trend over the last two weeks is <strong>{trend_label}</strong>. Use this to decide whether to tighten or relax short-term budgets.",
-    f"Income vs spend ratio is <strong>{kpis['income_ratio']:.1f}%</strong>. Values below ~40% usually indicate aggressive spending relative to income.",
-    f"Net savings from all transactions over the last 90 days is <strong>${kpis['net_savings_90']:,.2f}</strong>. Automating transfers to a separate savings account would lock this in.",
-    f"If you cut dining by 30%, you could free up roughly <strong>${dining_savings:,.2f}</strong> per month for savings or investing."
+    f"You spent the most on <strong>{top_cat}</strong> (${top_cat_amt:,.2f}). This is the biggest place you can save money.",
+    f"Your income is higher than your spending (<strong>{kpis['income_ratio']:.1f}%</strong>). This is a healthy sign.",
+    f"If you cut Dining by 30%, you could save about <strong>${dining_savings:,.2f}</strong> every month.",
+    f"Your spending in the last 2 weeks is <strong>{trend_label}</strong>. This means your recent trend is moving in that direction.",
+    f"You saved <strong>${kpis['net_savings_90']:,.2f}</strong> in the last 90 days. Moving some of this to a savings account would lock it in."
 ]
+
 
 c1, c2 = st.columns(2)
 for i, text in enumerate(insights):
