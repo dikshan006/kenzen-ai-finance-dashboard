@@ -165,43 +165,86 @@ def parse_pdf_file(uploaded_file):
     except Exception as e:
         st.error(f"PDF parsing error: {e}")
         return None
-
 def parse_csv_file(uploaded_file):
-    """Parse CSV bank statements with robust but simple logic."""
+    """Parse CSV bank statements, trying hard to handle weird formats."""
+    import csv
+    from io import StringIO
+
     try:
-        # Always rewind the file pointer
+        # reset pointer and read raw bytes
         uploaded_file.seek(0)
+        raw_bytes = uploaded_file.read()
 
-        # First attempt: default encoding (most banks)
-        try:
-            df = pd.read_csv(
-                uploaded_file,
-                dtype=str,
-                on_bad_lines="skip"
-            )
-        except Exception:
-            # Second attempt: latin1 for weird encodings
-            uploaded_file.seek(0)
-            df = pd.read_csv(
-                uploaded_file,
-                dtype=str,
-                encoding="latin1",
-                on_bad_lines="skip"
-            )
+        # ---- 1. Try several encodings ----
+        text = None
+        for enc in ["utf-8-sig", "utf-16", "latin1"]:
+            try:
+                text = raw_bytes.decode(enc)
+                break
+            except Exception:
+                continue
 
-        if df is None or df.empty:
-            st.error("CSV appears to be empty.")
+        if text is None:
+            st.error("Could not decode CSV with common encodings.")
             return None
+
+        # ---- 2. Detect separator (, ; tab |) ----
+        sample = text[:5000]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t", "|"])
+            sep = dialect.delimiter
+        except csv.Error:
+            sep = ","  # fallback
+
+        # ---- 3. Find the real header row (skip junk at top) ----
+        lines = text.splitlines()
+        header_idx = 0
+        best_cols = 0
+
+        for i in range(min(10, len(lines))):
+            chunk = "\n".join(lines[i : i + 50])
+            buf = StringIO(chunk)
+            try:
+                tmp = pd.read_csv(
+                    buf,
+                    sep=sep,
+                    engine="python",
+                    on_bad_lines="skip",
+                    nrows=5,
+                    dtype=str,
+                )
+                if tmp.shape[1] > best_cols:
+                    best_cols = tmp.shape[1]
+                    header_idx = i
+            except Exception:
+                continue
+
+        # ---- 4. Read full cleaned CSV from detected header ----
+        cleaned_text = "\n".join(lines[header_idx:])
+        buf = StringIO(cleaned_text)
+
+        df = pd.read_csv(
+            buf,
+            sep=sep,
+            engine="python",      # robust parser (avoids buffer overflow)
+            on_bad_lines="skip",
+            dtype=str,
+        )
 
         # Drop completely empty rows and columns
         df = df.dropna(how="all")
         df = df.loc[:, df.notna().any()]
+
+        if df is None or df.empty:
+            st.error("CSV appears to be empty after cleaning.")
+            return None
 
         return df
 
     except Exception as e:
         st.error(f"CSV parsing error: {e}")
         return None
+
 
 
 
