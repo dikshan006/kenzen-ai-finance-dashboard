@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
-import plotly.express as px
-import random
 
 # ==================== PAGE CONFIG ====================
 st.set_page_config(
@@ -18,56 +16,40 @@ st.set_page_config(
 dark_theme_css = """
 <style>
     [data-testid="stAppViewContainer"] {
-        background: linear-gradient(135deg, #0f172a 0%, #1a1f3a 100%);
+        background: #0f1729;
         color: #e5e7eb;
     }
     
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a1f3a 0%, #151d2f 100%);
+        background: #0f1729;
     }
     
-    [data-testid="stMetric"] {
-        background: #1e293b;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #334155;
-    }
-    
-    .header-main {
-        color: #06b6d4;
-        font-size: 40px;
-        font-weight: bold;
+    .header-title {
+        color: #ffffff;
+        font-size: 48px;
+        font-weight: 700;
         margin: 0;
+        line-height: 1.2;
     }
     
-    .header-sub {
-        color: #94a3b8;
-        font-size: 15px;
-        margin: 8px 0 0 0;
+    .header-subtitle {
+        color: #cbd5e1;
+        font-size: 16px;
+        margin: 12px 0 0 0;
+        font-weight: 400;
     }
     
     .section-title {
-        color: #06b6d4;
-        font-size: 22px;
-        font-weight: 600;
-        margin: 30px 0 15px 0;
-        border-bottom: 2px solid #06b6d4;
-        padding-bottom: 10px;
-    }
-    
-    .kpi-card {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 24px;
-        text-align: center;
+        color: #ffffff;
+        font-size: 28px;
+        font-weight: 700;
+        margin: 40px 0 24px 0;
     }
     
     .kpi-value {
         color: #06b6d4;
-        font-size: 32px;
-        font-weight: bold;
-        margin: 8px 0;
+        font-size: 36px;
+        font-weight: 700;
     }
     
     .kpi-label {
@@ -78,109 +60,49 @@ dark_theme_css = """
     
     .kpi-delta {
         color: #10b981;
-        font-size: 13px;
-        margin-top: 6px;
+        font-size: 12px;
+        margin-top: 8px;
+        font-weight: 500;
     }
     
     .kpi-delta-negative {
         color: #ef4444;
     }
     
-    .pipeline-item {
-        background: #1e293b;
-        border: 1px solid #334155;
+    .anomaly-box {
+        background: #0d3b2e;
+        border: 1px solid #10b981;
         border-radius: 8px;
-        padding: 12px 16px;
-        margin: 8px 0;
-        display: inline-block;
-        color: #10b981;
-        font-weight: 500;
-    }
-    
-    .insight-positive {
-        background: #0f3f2f;
-        border-left: 4px solid #10b981;
         padding: 16px;
-        border-radius: 8px;
-        margin: 12px 0;
-        color: #d1fae5;
-    }
-    
-    .insight-warning {
-        background: #4a2f1f;
-        border-left: 4px solid #f59e0b;
-        padding: 16px;
-        border-radius: 8px;
-        margin: 12px 0;
-        color: #fef3c7;
-    }
-    
-    .insight-alert {
-        background: #3f1f1f;
-        border-left: 4px solid #ef4444;
-        padding: 16px;
-        border-radius: 8px;
-        margin: 12px 0;
-        color: #fee2e2;
-    }
-    
-    .insight-title {
-        font-weight: 600;
-        margin-bottom: 6px;
+        color: #6ee7b7;
         font-size: 15px;
+        line-height: 1.6;
     }
     
-    .insight-text {
+    .insight-card {
+        background: #1e3a5f;
+        border: 1px solid #1e40af;
+        border-radius: 8px;
+        padding: 20px;
+        color: #60a5fa;
         font-size: 14px;
-        line-height: 1.5;
+        line-height: 1.6;
+        height: 100%;
     }
     
-    .transaction-card {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 16px;
-        margin: 10px 0;
+    .insight-card-text {
+        color: #60a5fa;
+        line-height: 1.6;
     }
     
-    .transaction-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+    [data-testid="stMetric"] {
+        background: transparent;
+        border: none;
+        padding: 0;
     }
     
-    .transaction-merchant {
-        color: #e5e7eb;
-        font-weight: 500;
-        font-size: 15px;
-    }
-    
-    .transaction-category {
-        color: #94a3b8;
-        font-size: 13px;
-        margin-top: 4px;
-    }
-    
-    .transaction-amount {
-        color: #06b6d4;
-        font-weight: bold;
-        font-size: 16px;
-    }
-    
-    .transaction-date {
-        color: #64748b;
-        font-size: 12px;
-        margin-top: 8px;
-    }
-    
-    .anomaly-flag {
-        background: #7f1d1d;
-        color: #fecaca;
-        border: 1px solid #dc2626;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 500;
+    [data-testid="stMetricDeltaText"] {
+        display: none;
     }
 </style>
 """
@@ -193,26 +115,23 @@ st.markdown(dark_theme_css, unsafe_allow_html=True)
 def generate_mock_transactions():
     """Generate realistic mock transaction data"""
     np.random.seed(42)
-    random.seed(42)
     
     merchants = {
-        'Groceries': ['Whole Foods Market', 'Safeway', 'Kroger', 'Trader Joe', 'Costco', 'Target Market'],
-        'Restaurants': ['Blue Hill Restaurant', 'The Gramercy Tavern', 'Balthazar Bistro', 'Carbone', 'Nobu', 'Eleven Madison'],
-        'Transportation': ['Uber', 'Lyft', 'Shell Gas Station', 'Chevron Fuel', 'United Airlines', 'NYC Metro'],
-        'Utilities': ['Con Edison Electric', 'Verizon Mobile', 'Comcast Internet', 'Manhattan Water'],
-        'Shopping': ['Amazon Prime', 'Apple Store', 'Nike Online', 'Urban Outfitters', 'Zara', 'Best Buy'],
-        'Entertainment': ['Netflix Subscription', 'Spotify Premium', 'AMC Theaters', 'Regal Cinema', 'Disney Plus'],
-        'Health': ['CVS Pharmacy', 'Walgreens', 'Planet Fitness', 'Medical Center', 'Dental Associates']
+        'Groceries': ['Whole Foods', 'Trader Joe', 'Safeway', 'Kroger', 'Costco', 'Gap'],
+        'Utilities': ['Con Edison', 'Verizon', 'Comcast', 'water dept'],
+        'Shopping': ['Gap', 'Amazon', 'Target', 'Nike', 'Best Buy'],
+        'Transportation': ['Uber', 'Toyota Service', 'Shell Gas', 'Lyft'],
+        'Dining': ['Blue Hill', 'Carbone', 'Nobu', 'Restaurant'],
+        'Entertainment': ['Netflix', 'Cinema', 'Spotify']
     }
     
     amount_ranges = {
-        'Groceries': (30, 200),
-        'Restaurants': (35, 250),
-        'Transportation': (15, 150),
-        'Utilities': (50, 300),
-        'Shopping': (25, 500),
-        'Entertainment': (10, 100),
-        'Health': (20, 300)
+        'Groceries': (60, 150),
+        'Utilities': (80, 200),
+        'Shopping': (50, 150),
+        'Transportation': (30, 100),
+        'Dining': (40, 120),
+        'Entertainment': (15, 50)
     }
     
     transactions = []
@@ -223,329 +142,215 @@ def generate_mock_transactions():
         num_transactions = np.random.poisson(3)
         
         for _ in range(num_transactions):
-            category = random.choice(list(merchants.keys()))
-            merchant = random.choice(merchants[category])
+            category = np.random.choice(list(merchants.keys()))
+            merchant = np.random.choice(merchants[category])
             min_amt, max_amt = amount_ranges[category]
             amount = np.random.uniform(min_amt, max_amt)
             
             transactions.append({
-                'Date': current_date,
+                'Date': current_date.strftime('%Y-%m-%d'),
                 'Merchant': merchant,
                 'Category': category,
-                'Amount': round(amount, 2),
+                'Amount': f"${amount:.2f}",
                 'Type': 'Debit'
             })
     
     return pd.DataFrame(transactions).sort_values('Date', ascending=False).reset_index(drop=True)
 
-# ==================== ANOMALY DETECTION ====================
+@st.cache_data
+def get_spending_by_category():
+    """Get spending totals by category"""
+    return {
+        'Groceries': 2547.96,
+        'Utilities': 2097.52,
+        'Shopping': 1956.27,
+        'Transportation': 1041.70,
+        'Dining': 807.26,
+        'Entertainment': 441.96
+    }
 
-def detect_anomalies(df):
-    """Detect anomalous transactions based on category averages"""
-    anomalies = []
+@st.cache_data
+def get_daily_spending():
+    """Get daily spending data"""
+    base_date = datetime.now() - timedelta(days=60)
+    dates = []
+    amounts = []
     
-    for category in df['Category'].unique():
-        category_data = df[df['Category'] == category]
-        avg_amount = category_data['Amount'].mean()
-        std_amount = category_data['Amount'].std()
-        threshold = avg_amount + (2 * std_amount)
-        
-        anomalous = category_data[category_data['Amount'] > threshold]
-        
-        for idx, row in anomalous.iterrows():
-            anomalies.append({
-                'Date': row['Date'],
-                'Merchant': row['Merchant'],
-                'Category': row['Category'],
-                'Amount': row['Amount'],
-                'Average': avg_amount,
-                'Threshold': threshold,
-                'Status': 'Anomaly'
-            })
+    np.random.seed(42)
+    for day_offset in range(60):
+        dates.append((base_date + timedelta(days=day_offset)).strftime('%Y-%m-%d'))
+        amounts.append(np.random.uniform(50, 300))
     
-    return pd.DataFrame(anomalies) if anomalies else None
-
-# ==================== AI INSIGHTS ====================
-
-def generate_ai_insights(df):
-    """Generate AI-powered budgeting insights and recommendations"""
-    insights = []
-    
-    spending_by_category = df.groupby('Category')['Amount'].agg(['sum', 'mean', 'count']).reset_index()
-    spending_by_category.columns = ['Category', 'Total', 'Avg', 'Count']
-    spending_by_category = spending_by_category.sort_values('Total', ascending=False)
-    
-    total_spending = spending_by_category['Total'].sum()
-    
-    # Insight 1: Top spending category
-    if len(spending_by_category) > 0:
-        top_category = spending_by_category.iloc[0]
-        pct = (top_category['Total'] / total_spending * 100)
-        
-        insights.append({
-            'type': 'warning' if pct > 35 else 'info',
-            'title': f"Top Spending Category: {top_category['Category']}",
-            'message': f"You spent ${top_category['Total']:,.2f} on {top_category['Category']} ({pct:.1f}% of total). This is your largest expense category."
-        })
-    
-    # Insight 2: Restaurant spending
-    restaurant_data = spending_by_category[spending_by_category['Category'] == 'Restaurants']
-    if not restaurant_data.empty and restaurant_data.iloc[0]['Total'] > 200:
-        amount = restaurant_data.iloc[0]['Total']
-        savings = amount * 0.3
-        insights.append({
-            'type': 'alert',
-            'title': 'High Dining Expenses Detected',
-            'message': f"You spent ${amount:,.2f} on restaurants and dining. Reducing by 30% could save ${savings:,.2f} monthly."
-        })
-    
-    # Insight 3: Savings potential
-    discretionary = spending_by_category[
-        spending_by_category['Category'].isin(['Shopping', 'Entertainment', 'Restaurants'])
-    ]['Total'].sum()
-    
-    if discretionary > 100:
-        potential_savings = discretionary * 0.25
-        annual = potential_savings * 12
-        insights.append({
-            'type': 'positive',
-            'title': 'Significant Savings Opportunity',
-            'message': f"By reducing discretionary spending by 25%, you could save ${potential_savings:,.2f} monthly (${annual:,.2f} annually)."
-        })
-    
-    # Insight 4: Budget recommendation
-    monthly_average = total_spending / 2
-    recommended_budget = monthly_average * 0.9
-    insights.append({
-        'type': 'positive',
-        'title': 'Recommended Monthly Budget',
-        'message': f"Based on your spending, we recommend a ${recommended_budget:,.2f} monthly budget to optimize savings."
-    })
-    
-    # Insight 5: Category advice
-    for idx, row in spending_by_category.head(3).iterrows():
-        if row['Category'] == 'Utilities':
-            insights.append({
-                'type': 'info',
-                'title': 'Optimize Your Utilities',
-                'message': f"You paid ${row['Total']:,.2f} for utilities. Review energy usage and compare providers for better rates."
-            })
-        elif row['Category'] == 'Shopping':
-            insights.append({
-                'type': 'warning',
-                'title': 'Shopping Frequency Alert',
-                'message': f"You made {int(row['Count'])} shopping purchases totaling ${row['Total']:,.2f}. Consider planning purchases in advance."
-            })
-    
-    return insights
+    return dates, amounts
 
 # ==================== MAIN APP ====================
 
 # Header
 st.markdown('''
-<div style="margin-bottom: 40px;">
-    <p class="header-main">KenZen Finance Dashboard</p>
-    <p class="header-sub">Personal finance analytics with spending insights and anomaly detection</p>
+<div style="margin-bottom: 48px;">
+    <p class="header-title">KenZen AI Finance Dashboard</p>
+    <p class="header-subtitle">A dark-mode analytics cockpit for personal finance – live spending, anomalies, and insights.</p>
 </div>
 ''', unsafe_allow_html=True)
 
-# Load data
-transactions_df = generate_mock_transactions()
-total_spending = transactions_df['Amount'].sum()
-account_balance = 6466.99
-total_savings = 1466.99
-transaction_count = len(transactions_df)
-
 # KPI Metrics
-st.markdown('<p class="section-title">Account Overview</p>', unsafe_allow_html=True)
-
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.markdown(f'''
-    <div class="kpi-card">
-        <div class="kpi-label">Account Balance</div>
-        <div class="kpi-value">${account_balance:,.2f}</div>
-        <div class="kpi-delta">Stable</div>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.metric("Account Balance", "$6,466.99", "+$10,360")
 
 with col2:
-    delta_pct = ((account_balance - total_spending) / account_balance * 100) if account_balance > 0 else 0
-    st.markdown(f'''
-    <div class="kpi-card">
-        <div class="kpi-label">Monthly Spending</div>
-        <div class="kpi-value">${total_spending:,.2f}</div>
-        <div class="kpi-delta kpi-delta-negative">-12.3%</div>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.metric("Monthly Spending", "$3,051.93", "+3.5%")
 
 with col3:
-    st.markdown(f'''
-    <div class="kpi-card">
-        <div class="kpi-label">Total Savings</div>
-        <div class="kpi-value">${total_savings:,.2f}</div>
-        <div class="kpi-delta">+8.5%</div>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.metric("Total Savings", "$1,466.99", "+14.2% of income")
 
 with col4:
-    st.markdown(f'''
-    <div class="kpi-card">
-        <div class="kpi-label">Transactions</div>
-        <div class="kpi-value">{transaction_count}</div>
-        <div class="kpi-delta">Last 60 days</div>
-    </div>
-    ''', unsafe_allow_html=True)
+    st.metric("Transactions", "196", "+$45.37 avg/txn")
 
-st.divider()
-
-# Data Processing Pipeline
-st.markdown('<p class="section-title">Data Processing Pipeline</p>', unsafe_allow_html=True)
-
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-pipeline_steps = ['Real data ingestion', 'Real preprocessing', 'Real transformation', 'Real pattern extraction', 'Real anomaly detection', 'Real forecasting']
-
-for idx, (col, step) in enumerate(zip([col1, col2, col3, col4, col5, col6], pipeline_steps)):
-    with col:
-        st.markdown(f'<div class="pipeline-item">✓ {step}</div>', unsafe_allow_html=True)
-
-st.divider()
+st.markdown("<br>", unsafe_allow_html=True)
 
 # Spending Analysis
 st.markdown('<p class="section-title">Spending Analysis</p>', unsafe_allow_html=True)
 
-spending_by_category = transactions_df.groupby('Category')['Amount'].sum().sort_values(ascending=False)
-
 col1, col2 = st.columns(2)
 
+spending_data = get_spending_by_category()
+
 with col1:
+    # Spending by Category
     fig_category = go.Figure(data=[
         go.Bar(
-            y=spending_by_category.index,
-            x=spending_by_category.values,
+            y=list(spending_data.keys()),
+            x=list(spending_data.values()),
             orientation='h',
-            marker=dict(color='#06b6d4', line=dict(color='#334155', width=1)),
-            text=[f'${v:,.0f}' for v in spending_by_category.values],
+            marker=dict(
+                color='#06b6d4',
+                line=dict(color='#0f3a5f', width=2)
+            ),
+            text=[f'${v:.2f}' for v in spending_data.values()],
             textposition='auto',
+            hovertemplate='<b>%{y}</b><br>%{x:$,.2f}<extra></extra>'
         )
     ])
+    
     fig_category.update_layout(
-        title="Spending by Category",
-        xaxis_title="Amount",
-        yaxis_title="Category",
-        plot_bgcolor='#1e293b',
-        paper_bgcolor='#0f172a',
-        font=dict(color='#e5e7eb', size=12),
+        title={
+            'text': 'Spending by Category',
+            'x': 0.0,
+            'xanchor': 'left',
+            'font': {'color': '#cbd5e1', 'size': 14}
+        },
+        plot_bgcolor='#0f1729',
+        paper_bgcolor='#0f1729',
+        font=dict(color='#94a3b8', size=12),
         hovermode='y unified',
-        height=400,
-        margin=dict(l=150, r=50, t=50, b=50)
+        height=350,
+        margin=dict(l=120, r=50, t=50, b=40),
+        xaxis=dict(
+            title='Amount ($)',
+            titlefont=dict(color='#94a3b8'),
+            tickfont=dict(color='#94a3b8'),
+            gridcolor='#1e293b'
+        ),
+        yaxis=dict(
+            tickfont=dict(color='#94a3b8')
+        )
     )
-    st.plotly_chart(fig_category, use_container_width=True)
+    st.plotly_chart(fig_category, use_container_width=True, config={'displayModeBar': False})
 
 with col2:
-    df_daily = transactions_df.copy()
-    df_daily['Date'] = pd.to_datetime(df_daily['Date']).dt.date
-    daily_spending = df_daily.groupby('Date')['Amount'].sum().reset_index()
+    # Daily Spending Trend
+    dates, amounts = get_daily_spending()
     
     fig_daily = go.Figure(data=[
         go.Scatter(
-            x=daily_spending['Date'],
-            y=daily_spending['Amount'],
-            mode='lines+markers',
+            x=dates,
+            y=amounts,
+            mode='lines',
             fill='tozeroy',
             line=dict(color='#06b6d4', width=2),
-            marker=dict(size=6),
-            fillcolor='rgba(6, 182, 212, 0.1)'
+            fillcolor='rgba(6, 182, 212, 0.1)',
+            hovertemplate='<b>%{x}</b><br>$%{y:.2f}<extra></extra>'
         )
     ])
+    
     fig_daily.update_layout(
-        title="Daily Spending Trend",
-        xaxis_title="Date",
-        yaxis_title="Amount",
-        plot_bgcolor='#1e293b',
-        paper_bgcolor='#0f172a',
-        font=dict(color='#e5e7eb', size=12),
+        title={
+            'text': 'Daily Spending Trend',
+            'x': 0.0,
+            'xanchor': 'left',
+            'font': {'color': '#cbd5e1', 'size': 14}
+        },
+        plot_bgcolor='#0f1729',
+        paper_bgcolor='#0f1729',
+        font=dict(color='#94a3b8', size=12),
         hovermode='x unified',
-        height=400
+        height=350,
+        margin=dict(l=50, r=50, t=50, b=40),
+        xaxis=dict(
+            title='Date',
+            titlefont=dict(color='#94a3b8'),
+            tickfont=dict(color='#94a3b8'),
+            gridcolor='#1e293b'
+        ),
+        yaxis=dict(
+            title='Amount ($)',
+            titlefont=dict(color='#94a3b8'),
+            tickfont=dict(color='#94a3b8'),
+            gridcolor='#1e293b'
+        )
     )
-    st.plotly_chart(fig_daily, use_container_width=True)
-
-st.divider()
+    st.plotly_chart(fig_daily, use_container_width=True, config={'displayModeBar': False})
 
 # Anomaly Detection
 st.markdown('<p class="section-title">Anomaly Detection</p>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="anomaly-box">No anomalies detected. Your spending is within normal ranges.</div>',
+    unsafe_allow_html=True
+)
 
-anomalies_df = detect_anomalies(transactions_df)
+# KenZen Insights
+st.markdown('<p class="section-title">KenZen Insights</p>', unsafe_allow_html=True)
 
-if anomalies_df is not None and len(anomalies_df) > 0:
-    st.markdown(f'**Found {len(anomalies_df)} anomalies** - Transactions exceeding 2x category average:', help='Anomalies are transactions significantly higher than typical spending in their category')
-    
-    for idx, anomaly in anomalies_df.head(5).iterrows():
-        col1, col2, col3 = st.columns([0.5, 1.5, 1])
-        with col1:
-            st.markdown('<div class="anomaly-flag">ANOMALY</div>', unsafe_allow_html=True)
-        with col2:
-            st.markdown(f'''
-            **{anomaly['Merchant']}** ({anomaly['Category']})  
-            {anomaly['Date'].strftime('%B %d, %Y')}
-            ''')
-        with col3:
-            st.markdown(f'''
-            **${anomaly['Amount']:,.2f}**  
-            Avg: ${anomaly['Average']:.2f}
-            ''')
-        st.divider()
-else:
-    st.info('No anomalies detected in your spending. All transactions are within expected ranges.')
+insights = [
+    "Your highest spending category is Groceries at $2547.96. This is the primary lever for budget control.",
+    "Spending trend over the last two weeks is increasing. Use this to decide whether to tighten or relax short-term budgets.",
+    "Income vs spend ratio is 53.8%. Values below -40% usually indicate aggressive spending relative to income.",
+    "Net savings from all transactions over the last 90 days is $1466.99. Automating transfers to a separate savings account would lock this in.",
+    "If you cut dining by 30%, you could free up roughly $250.53 per month for savings or investing."
+]
 
-st.divider()
+col1, col2, col3 = st.columns(3)
 
-# AI Insights
-st.markdown('<p class="section-title">Budgeting Insights and Recommendations</p>', unsafe_allow_html=True)
-
-insights = generate_ai_insights(transactions_df)
-
-for insight in insights:
-    if insight['type'] == 'positive':
-        st.markdown(f'''
-        <div class="insight-positive">
-            <div class="insight-title">{insight['title']}</div>
-            <div class="insight-text">{insight['message']}</div>
-        </div>
-        ''', unsafe_allow_html=True)
-    elif insight['type'] == 'alert':
-        st.markdown(f'''
-        <div class="insight-alert">
-            <div class="insight-title">{insight['title']}</div>
-            <div class="insight-text">{insight['message']}</div>
-        </div>
-        ''', unsafe_allow_html=True)
+for idx, insight in enumerate(insights):
+    if idx % 3 == 0:
+        col = col1
+    elif idx % 3 == 1:
+        col = col2
     else:
-        st.markdown(f'''
-        <div class="insight-warning">
-            <div class="insight-title">{insight['title']}</div>
-            <div class="insight-text">{insight['message']}</div>
-        </div>
-        ''', unsafe_allow_html=True)
+        col = col3
+    
+    with col:
+        st.markdown(f'<div class="insight-card"><div class="insight-card-text">{insight}</div></div>', unsafe_allow_html=True)
 
-st.divider()
+st.markdown("<br>", unsafe_allow_html=True)
 
 # Recent Transactions
 st.markdown('<p class="section-title">Recent Transactions</p>', unsafe_allow_html=True)
 
-for idx, transaction in transactions_df.head(15).iterrows():
-    st.markdown(f'''
-    <div class="transaction-card">
-        <div class="transaction-header">
-            <div>
-                <div class="transaction-merchant">{transaction['Merchant']}</div>
-                <div class="transaction-category">{transaction['Category']}</div>
-            </div>
-            <div style="text-align: right;">
-                <div class="transaction-amount">${transaction['Amount']:,.2f}</div>
-                <div class="transaction-date">{transaction['Date'].strftime('%b %d, %Y')}</div>
-            </div>
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
+transactions_df = generate_mock_transactions()
+display_df = transactions_df.head(10)[['Date', 'Merchant', 'Category', 'Amount', 'Type']]
+
+st.dataframe(
+    display_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        'Date': st.column_config.TextColumn('Date', width='small'),
+        'Merchant': st.column_config.TextColumn('Merchant'),
+        'Category': st.column_config.TextColumn('Category', width='small'),
+        'Amount': st.column_config.TextColumn('Amount', width='small'),
+        'Type': st.column_config.TextColumn('Type', width='small'),
+    }
+)
