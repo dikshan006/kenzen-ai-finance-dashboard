@@ -12,85 +12,45 @@ st.set_page_config(
 )
 
 # ---------- Global Styles ----------
-st.markdown(
-    """
-    <style>
-    body {
-        background-color: #020617;
-        color: #e2e8f0;
-    }
-    .main {
-        background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #020617 100%);
-        padding: 2rem 3rem;
-    }
-    h1 {
-        color: #e5e7eb;
-        font-size: 2.6rem;
-        font-weight: 700;
-        letter-spacing: -0.04em;
-        margin-bottom: 0.25rem;
-    }
-    h2 {
-        color: #e5e7eb;
-        font-size: 1.4rem;
-        font-weight: 600;
-        margin-top: 2.5rem;
-        margin-bottom: 1rem;
-    }
-    .subheadline {
-        color: #9ca3af;
-        font-size: 0.95rem;
-        margin-bottom: 1.5rem;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 2.0rem !important;
-        font-weight: 700 !important;
-        color: #38bdf8 !important;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.8rem !important;
-        color: #9ca3af !important;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-    }
-    [data-testid="stMetricDelta"] {
-        font-size: 0.8rem !important;
-        font-weight: 600 !important;
-    }
-    .section-divider {
-        border-bottom: 1px solid #1f2937;
-        margin: 1.75rem 0 1.25rem 0;
-    }
-    .insight-card {
-        background: linear-gradient(135deg, #020617, #020617);
-        border-radius: 0.75rem;
-        border: 1px solid #1f2937;
-        padding: 1rem 1.1rem;
-        font-size: 0.9rem;
-        color: #e5e7eb;
-        box-shadow: 0 10px 25px rgba(15,23,42,0.8);
-        min-height: 4.5rem;
-    }
-    .insight-card strong {
-        color: #38bdf8;
-    }
-    .badge-ok {
-        background: rgba(16, 185, 129, 0.15);
-        border-radius: 999px;
-        padding: 0.4rem 0.9rem;
-        font-size: 0.85rem;
-        color: #6ee7b7;
-        border: 1px solid rgba(16, 185, 129, 0.4);
-        display: inline-block;
-    }
-    .data-caption {
-        color: #6b7280;
-        font-size: 0.8rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+/* Make the whole app dark navy, ignore Streamlit theme */
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: #0b1221 !important;
+    color: #e5e7eb !important;
+}
+
+/* Remove white header bar */
+[data-testid="stHeader"] {
+    background-color: rgba(0,0,0,0) !important;
+}
+
+/* Sidebar (if used) */
+[data-testid="stSidebar"] {
+    background-color: #08111e !important;
+}
+
+/* Dataframes / tables */
+[data-testid="stDataFrame"] {
+    background-color: #020617 !important;
+    color: #e5e7eb !important;
+}
+
+/* Metrics */
+[data-testid="stMetricValue"] {
+    font-size: 2.0rem !important;
+    font-weight: 700 !important;
+    color: #4fc3f7 !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.8rem !important;
+    color: #9ca3af !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ---------- Mock Data Generator ----------
 def generate_mock_data():
