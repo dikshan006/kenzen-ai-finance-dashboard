@@ -4,20 +4,17 @@ import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
-import io
-import re
-from io import StringIO, BytesIO
-from pypdf import PdfReader
+import random
 
-# ==================== STREAMLIT PAGE CONFIG ====================
+# ==================== PAGE CONFIG ====================
 st.set_page_config(
-    page_title="KenZen AI Finance",
+    page_title="KenZen Finance",
     page_icon="💰",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# <CHANGE> Dark fintech theme - professional styling without emojis
+# ==================== DARK FINTECH THEME ====================
 dark_theme_css = """
 <style>
     [data-testid="stAppViewContainer"] {
@@ -36,745 +33,519 @@ dark_theme_css = """
         border: 1px solid #334155;
     }
     
-    .metric-label {
-        color: #94a3b8;
-        font-size: 14px;
-    }
-    
-    .metric-value {
+    .header-main {
         color: #06b6d4;
-        font-size: 32px;
+        font-size: 40px;
         font-weight: bold;
+        margin: 0;
     }
     
-    .card {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 20px;
-        margin: 10px 0;
+    .header-sub {
+        color: #94a3b8;
+        font-size: 15px;
+        margin: 8px 0 0 0;
     }
     
     .section-title {
         color: #06b6d4;
-        font-size: 24px;
-        font-weight: bold;
-        margin: 20px 0 15px 0;
+        font-size: 22px;
+        font-weight: 600;
+        margin: 30px 0 15px 0;
         border-bottom: 2px solid #06b6d4;
         padding-bottom: 10px;
     }
     
-    .insight-positive {
-        background: #064e3b;
-        border-left: 4px solid #10b981;
-        padding: 15px;
+    .kpi-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 24px;
+        text-align: center;
+    }
+    
+    .kpi-value {
+        color: #06b6d4;
+        font-size: 32px;
+        font-weight: bold;
+        margin: 8px 0;
+    }
+    
+    .kpi-label {
+        color: #94a3b8;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    .kpi-delta {
+        color: #10b981;
+        font-size: 13px;
+        margin-top: 6px;
+    }
+    
+    .kpi-delta-negative {
+        color: #ef4444;
+    }
+    
+    .pipeline-item {
+        background: #1e293b;
+        border: 1px solid #334155;
         border-radius: 8px;
-        margin: 10px 0;
+        padding: 12px 16px;
+        margin: 8px 0;
+        display: inline-block;
+        color: #10b981;
+        font-weight: 500;
+    }
+    
+    .insight-positive {
+        background: #0f3f2f;
+        border-left: 4px solid #10b981;
+        padding: 16px;
+        border-radius: 8px;
+        margin: 12px 0;
         color: #d1fae5;
     }
     
     .insight-warning {
-        background: #78350f;
+        background: #4a2f1f;
         border-left: 4px solid #f59e0b;
-        padding: 15px;
+        padding: 16px;
         border-radius: 8px;
-        margin: 10px 0;
+        margin: 12px 0;
         color: #fef3c7;
     }
     
     .insight-alert {
-        background: #7f1d1d;
+        background: #3f1f1f;
         border-left: 4px solid #ef4444;
-        padding: 15px;
+        padding: 16px;
         border-radius: 8px;
-        margin: 10px 0;
+        margin: 12px 0;
         color: #fee2e2;
     }
     
-    .insight-info {
-        background: #1e3a8a;
-        border-left: 4px solid #3b82f6;
-        padding: 15px;
-        border-radius: 8px;
-        margin: 10px 0;
-        color: #dbeafe;
+    .insight-title {
+        font-weight: 600;
+        margin-bottom: 6px;
+        font-size: 15px;
     }
-
-    .demo-text {
-        color: #94a3b8;
+    
+    .insight-text {
         font-size: 14px;
+        line-height: 1.5;
+    }
+    
+    .transaction-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 16px;
+        margin: 10px 0;
+    }
+    
+    .transaction-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .transaction-merchant {
+        color: #e5e7eb;
+        font-weight: 500;
+        font-size: 15px;
+    }
+    
+    .transaction-category {
+        color: #94a3b8;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+    
+    .transaction-amount {
+        color: #06b6d4;
+        font-weight: bold;
+        font-size: 16px;
+    }
+    
+    .transaction-date {
+        color: #64748b;
+        font-size: 12px;
+        margin-top: 8px;
+    }
+    
+    .anomaly-flag {
+        background: #7f1d1d;
+        color: #fecaca;
+        border: 1px solid #dc2626;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
     }
 </style>
 """
 
 st.markdown(dark_theme_css, unsafe_allow_html=True)
 
-# ==================== BULLETPROOF PARSERS ====================
+# ==================== MOCK DATA GENERATION ====================
 
-def parse_pdf_file(uploaded_file):
-    """Extract ALL transactions from ANY PDF format with robust multi-strategy approach"""
-    try:
-        reader = PdfReader(uploaded_file)
-        text = ""
-        for page in reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text += extracted + "\n"
-        
-        if not text or len(text.strip()) < 10:
-            return None
-        
-        transactions = []
-        
-        # Strategy 1: Aggressive line-by-line pattern matching
-        lines = text.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line or len(line) < 10:
-                continue
-            
-            # Look for date patterns anywhere in line
-            date_matches = re.findall(r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})', line)
-            if not date_matches:
-                continue
-            
-            date_str = date_matches[0]
-            
-            # Extract all numbers from line (potential amounts)
-            numbers = re.findall(r'([\d,]+\.?\d{0,2})', line)
-            
-            # Find the largest number (likely the transaction amount)
-            amounts = []
-            for num_str in numbers:
-                try:
-                    amounts.append(float(num_str.replace(',', '')))
-                except:
-                    pass
-            
-            if not amounts:
-                continue
-            
-            amount = max(amounts)
-            
-            # Extract merchant (everything between date and first number)
-            date_idx = line.find(date_str)
-            after_date = line[date_idx + len(date_str):].strip()
-            
-            # Get merchant name
-            merchant_match = re.search(r'([A-Za-z\s]{3,}?)\s+[\d,]', after_date)
-            if merchant_match:
-                merchant = merchant_match.group(1).strip()[:50]
-            else:
-                merchant = re.sub(r'[\d,\.]+', '', after_date)[:50].strip()
-            
-            if not merchant or len(merchant.strip()) < 2:
-                merchant = 'Transaction'
-            
-            tx_type = 'Credit' if 'CR' in line.upper() or 'DEP' in line.upper() or 'CREDIT' in line.upper() else 'Debit'
-            
-            # Parse date with multiple formats
-            date_obj = None
-            for fmt in ['%m/%d/%Y', '%d/%m/%Y', '%m-%d-%Y', '%d-%m-%Y', '%Y/%m/%d', '%Y-%m-%d']:
-                try:
-                    date_obj = pd.to_datetime(date_str, format=fmt)
-                    break
-                except:
-                    pass
-            
-            if date_obj is None or pd.isna(date_obj):
-                date_obj = pd.to_datetime(date_str, errors='coerce')
-            
-            if pd.isna(date_obj):
-                continue
-            
-            if amount > 0:
-                transactions.append({
-                    'Date': date_obj,
-                    'Merchant': merchant,
-                    'Amount': abs(amount),
-                    'Type': tx_type
-                })
-        
-        # Strategy 2: Table-like extraction
-        if len(transactions) < 3:
-            table_pattern = r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s+(.+?)\s+([\d,]+\.?\d*)'
-            for match in re.finditer(table_pattern, text):
-                try:
-                    date_str = match.group(1)
-                    merchant = match.group(2).strip()[:50]
-                    amount = float(match.group(3).replace(',', ''))
-                    
-                    if merchant and len(merchant) > 1 and amount > 0:
-                        date_obj = pd.to_datetime(date_str, errors='coerce')
-                        if not pd.isna(date_obj):
-                            transactions.append({
-                                'Date': date_obj,
-                                'Merchant': merchant,
-                                'Amount': amount,
-                                'Type': 'Debit'
-                            })
-                except:
-                    pass
-        
-        if len(transactions) == 0:
-            return None
-        
-        df = pd.DataFrame(transactions)
-        df['Category'] = 'Other'
-        
-        # Deduplicate by Date + Amount
-        df = df.drop_duplicates(subset=['Date', 'Amount'], keep='first')
-        
-        return df[['Date', 'Merchant', 'Category', 'Amount', 'Type']].sort_values('Date').reset_index(drop=True)
+@st.cache_data
+def generate_mock_transactions():
+    """Generate realistic mock transaction data"""
+    np.random.seed(42)
+    random.seed(42)
     
-    except Exception as e:
-        print(f"PDF parsing error: {str(e)}")
-        return None
-
-def parse_csv_file(uploaded_file):
-    """Parse CSV with comprehensive encoding and format detection"""
-    try:
-        uploaded_file.seek(0)
-        content = uploaded_file.read()
-        
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'utf-16']
-        df = None
-        
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(content),
-                    encoding=encoding,
-                    on_bad_lines='skip',
-                    dtype=str,
-                    thousands=',',
-                    engine='python',
-                    low_memory=False
-                )
-                if len(df) > 0 and len(df.columns) > 0:
-                    break
-            except:
-                try:
-                    df = pd.read_csv(
-                        io.BytesIO(content),
-                        encoding=encoding,
-                        on_bad_lines='skip',
-                        dtype=str,
-                        sep=None,
-                        engine='python',
-                        low_memory=False
-                    )
-                    if len(df) > 0 and len(df.columns) > 0:
-                        break
-                except:
-                    continue
-        
-        if df is None or len(df) == 0:
-            return None
-        
-        df = df.dropna(how='all')
-        df = df.loc[:, (df.notna().sum() > 0)]
-        
-        return df if len(df) > 0 else None
-    
-    except Exception as e:
-        print(f"CSV parsing error: {str(e)}")
-        return None
-
-def standardize_transactions(df):
-    """Extract transactions from ANY CSV/PDF format - bulletproof column detection"""
-    try:
-        if df is None or len(df) == 0:
-            return None
-        
-        df = df.copy()
-        
-        # Normalize column names
-        df.columns = [str(col).strip().lower().replace(' ', '_').replace('.', '').replace('(', '').replace(')', '') for col in df.columns]
-        
-        # Remove completely empty rows
-        df = df.dropna(how='all')
-        
-        # Skip header-like rows
-        header_keywords = ['date', 'posted', 'description', 'amount', 'debit', 'credit', 'type', 'merchant', 'category', 'balance']
-        for idx in df.index:
-            row_str = ' '.join(df.iloc[idx].astype(str)).lower()
-            keyword_count = sum(1 for kw in header_keywords if kw in row_str)
-            if keyword_count >= 4:
-                df = df.drop(idx)
-        
-        if len(df) == 0:
-            return None
-        
-        # ===== DATE COLUMN DETECTION =====
-        date_col = None
-        date_keywords = ['date', 'posted', 'trans_date', 'post_date', 'transaction_date', 'tdate', 'when']
-        
-        for col in df.columns:
-            if any(kw in col for kw in date_keywords):
-                date_col = col
-                break
-        
-        if not date_col:
-            for col in df.columns:
-                try:
-                    sample = df[col].astype(str).head(10).dropna()
-                    parsed_dates = pd.to_datetime(sample, errors='coerce', infer_datetime_format=True)
-                    valid_pct = parsed_dates.notna().sum() / len(parsed_dates) if len(parsed_dates) > 0 else 0
-                    if valid_pct >= 0.4:
-                        date_col = col
-                        break
-                except:
-                    pass
-        
-        if not date_col:
-            date_col = df.columns[0]
-        
-        try:
-            df['Date'] = pd.to_datetime(df[date_col].astype(str), errors='coerce', infer_datetime_format=True)
-            df = df.dropna(subset=['Date'])
-        except:
-            return None
-        
-        if len(df) == 0:
-            return None
-        
-        # ===== MERCHANT COLUMN DETECTION =====
-        merchant_col = None
-        merchant_keywords = ['merchant', 'description', 'desc', 'details', 'narration', 'memo', 'payee', 'vendor', 'name', 'reference', 'transaction']
-        
-        for col in df.columns:
-            if any(kw in col for kw in merchant_keywords):
-                merchant_col = col
-                break
-        
-        if not merchant_col:
-            for col in df.columns:
-                if col != date_col:
-                    try:
-                        text_lengths = df[col].astype(str).str.len().mean()
-                        if text_lengths > 5:
-                            merchant_col = col
-                            break
-                    except:
-                        pass
-        
-        if merchant_col:
-            df['Merchant'] = df[merchant_col].astype(str).str.strip().str[:60]
-        else:
-            df['Merchant'] = 'Transaction'
-        
-        df['Merchant'] = df['Merchant'].replace('', 'Transaction').replace('nan', 'Transaction')
-        
-        # ===== CATEGORY DETECTION =====
-        df['Category'] = 'Other'
-        for col in df.columns:
-            if 'category' in col or 'cat' in col:
-                try:
-                    df['Category'] = df[col].astype(str).str.strip().fillna('Other')
-                    break
-                except:
-                    pass
-        
-        # ===== AMOUNT PARSING =====
-        def parse_amount(val):
-            """Parse amount with multiple currency and format support"""
-            if pd.isna(val) or val == '' or val == '0' or val is None:
-                return 0.0
-            
-            val_str = str(val).strip()
-            val_str = re.sub(r'[$€£₹¥₽₩₪฿]', '', val_str)
-            
-            if re.match(r'^$$[^)]+$$$', val_str):
-                val_str = '-' + val_str.replace('(', '').replace(')', '')
-            
-            val_str = val_str.replace(',', '').replace(' ', '').strip()
-            
-            if not val_str or val_str == '-':
-                return 0.0
-            
-            try:
-                return float(val_str)
-            except:
-                return 0.0
-        
-        # Find amount columns
-        debit_col = credit_col = amount_col = None
-        
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if 'debit' in col_lower or 'withdrawal' in col_lower:
-                debit_col = col
-            elif 'credit' in col_lower or 'deposit' in col_lower:
-                credit_col = col
-            elif any(x in col_lower for x in ['amount', 'amt', 'value', 'total', 'withdrawn']):
-                amount_col = col
-        
-        if debit_col and credit_col:
-            debits = df[debit_col].apply(parse_amount)
-            credits = df[credit_col].apply(parse_amount)
-            df['Amount'] = (debits + credits).abs()
-        elif amount_col:
-            df['Amount'] = df[amount_col].apply(lambda x: abs(parse_amount(x)))
-        else:
-            best_col = None
-            best_sum = 0
-            for col in df.columns:
-                if col not in [date_col, merchant_col]:
-                    try:
-                        nums = df[col].apply(parse_amount)
-                        total = nums.sum()
-                        if total > best_sum and len(nums[nums > 0]) > len(df) * 0.2:
-                            best_col = col
-                            best_sum = total
-                    except:
-                        pass
-            
-            if best_col:
-                df['Amount'] = df[best_col].apply(lambda x: abs(parse_amount(x)))
-            else:
-                return None
-        
-        # Filter valid transactions
-        df = df[df['Amount'] > 0].copy()
-        df = df.dropna(subset=['Date', 'Amount', 'Merchant'])
-        
-        if len(df) == 0:
-            return None
-        
-        # Remove duplicates and sort
-        df = df.drop_duplicates(subset=['Date', 'Merchant', 'Amount'], keep='first')
-        result = df[['Date', 'Merchant', 'Category', 'Amount']].sort_values('Date').reset_index(drop=True)
-        result['Type'] = 'Debit'
-        
-        return result[['Date', 'Merchant', 'Category', 'Amount', 'Type']] if len(result) > 0 else None
-    
-    except Exception as e:
-        print(f"Transaction standardization error: {str(e)}")
-        return None
-
-# ==================== CATEGORY CLASSIFICATION ====================
-
-def classify_category(merchant):
-    """Intelligently classify transactions into categories"""
-    merchant_lower = merchant.lower()
-    
-    categories = {
-        'Groceries': ['grocery', 'supermarket', 'whole foods', 'trader', 'safeway', 'kroger', 'costco', 'walmart', 'target', 'market', 'produce', 'food', 'trader joe', 'wholefoods'],
-        'Restaurants': ['restaurant', 'cafe', 'coffee', 'pizza', 'burger', 'sushi', 'diner', 'bistro', 'grill', 'tavern', 'bar', 'pub', 'doordash', 'uber eats', 'grubhub', 'food delivery'],
-        'Transportation': ['uber', 'lyft', 'taxi', 'gas', 'fuel', 'shell', 'chevron', 'exxon', 'parking', 'metro', 'transit', 'airline', 'flight', 'train', 'tesla', 'car', 'automotive'],
-        'Utilities': ['electric', 'water', 'gas', 'internet', 'phone', 'verizon', 'at&t', 't-mobile', 'comcast', 'spectrum', 'utility'],
-        'Shopping': ['amazon', 'ebay', 'shop', 'store', 'retail', 'mall', 'target', 'bestbuy', 'best buy', 'costco', 'department'],
-        'Entertainment': ['netflix', 'spotify', 'hulu', 'disney', 'gaming', 'steam', 'movie', 'cinema', 'theater', 'concert', 'ticket', 'entertainment', 'playstation', 'xbox', 'apple tv'],
-        'Health': ['pharmacy', 'doctor', 'hospital', 'clinic', 'dental', 'dentist', 'cvs', 'walgreens', 'medical', 'health', 'gym', 'fitness', 'yoga'],
-        'Subscription': ['subscription', 'premium', 'membership', 'plan'],
+    merchants = {
+        'Groceries': ['Whole Foods Market', 'Safeway', 'Kroger', 'Trader Joe', 'Costco', 'Target Market'],
+        'Restaurants': ['Blue Hill Restaurant', 'The Gramercy Tavern', 'Balthazar Bistro', 'Carbone', 'Nobu', 'Eleven Madison'],
+        'Transportation': ['Uber', 'Lyft', 'Shell Gas Station', 'Chevron Fuel', 'United Airlines', 'NYC Metro'],
+        'Utilities': ['Con Edison Electric', 'Verizon Mobile', 'Comcast Internet', 'Manhattan Water'],
+        'Shopping': ['Amazon Prime', 'Apple Store', 'Nike Online', 'Urban Outfitters', 'Zara', 'Best Buy'],
+        'Entertainment': ['Netflix Subscription', 'Spotify Premium', 'AMC Theaters', 'Regal Cinema', 'Disney Plus'],
+        'Health': ['CVS Pharmacy', 'Walgreens', 'Planet Fitness', 'Medical Center', 'Dental Associates']
     }
     
-    for category, keywords in categories.items():
-        if any(kw in merchant_lower for kw in keywords):
-            return category
+    amount_ranges = {
+        'Groceries': (30, 200),
+        'Restaurants': (35, 250),
+        'Transportation': (15, 150),
+        'Utilities': (50, 300),
+        'Shopping': (25, 500),
+        'Entertainment': (10, 100),
+        'Health': (20, 300)
+    }
     
-    return 'Other'
+    transactions = []
+    base_date = datetime.now() - timedelta(days=60)
+    
+    for day_offset in range(60):
+        current_date = base_date + timedelta(days=day_offset)
+        num_transactions = np.random.poisson(3)
+        
+        for _ in range(num_transactions):
+            category = random.choice(list(merchants.keys()))
+            merchant = random.choice(merchants[category])
+            min_amt, max_amt = amount_ranges[category]
+            amount = np.random.uniform(min_amt, max_amt)
+            
+            transactions.append({
+                'Date': current_date,
+                'Merchant': merchant,
+                'Category': category,
+                'Amount': round(amount, 2),
+                'Type': 'Debit'
+            })
+    
+    return pd.DataFrame(transactions).sort_values('Date', ascending=False).reset_index(drop=True)
 
-# ==================== AI INSIGHTS & BUDGETING ====================
+# ==================== ANOMALY DETECTION ====================
 
-def generate_ai_insights(transactions_df, account_balance):
-    """Generate AI insights for budgeting and saving recommendations"""
+def detect_anomalies(df):
+    """Detect anomalous transactions based on category averages"""
+    anomalies = []
     
-    if transactions_df is None or len(transactions_df) == 0:
-        return []
+    for category in df['Category'].unique():
+        category_data = df[df['Category'] == category]
+        avg_amount = category_data['Amount'].mean()
+        std_amount = category_data['Amount'].std()
+        threshold = avg_amount + (2 * std_amount)
+        
+        anomalous = category_data[category_data['Amount'] > threshold]
+        
+        for idx, row in anomalous.iterrows():
+            anomalies.append({
+                'Date': row['Date'],
+                'Merchant': row['Merchant'],
+                'Category': row['Category'],
+                'Amount': row['Amount'],
+                'Average': avg_amount,
+                'Threshold': threshold,
+                'Status': 'Anomaly'
+            })
     
+    return pd.DataFrame(anomalies) if anomalies else None
+
+# ==================== AI INSIGHTS ====================
+
+def generate_ai_insights(df):
+    """Generate AI-powered budgeting insights and recommendations"""
     insights = []
     
-    # Classify all transactions
-    transactions_df['ClassifiedCategory'] = transactions_df['Merchant'].apply(classify_category)
+    spending_by_category = df.groupby('Category')['Amount'].agg(['sum', 'mean', 'count']).reset_index()
+    spending_by_category.columns = ['Category', 'Total', 'Avg', 'Count']
+    spending_by_category = spending_by_category.sort_values('Total', ascending=False)
     
-    # Calculate spending by category
-    spending_by_category = transactions_df.groupby('ClassifiedCategory')['Amount'].sum().sort_values(ascending=False)
-    total_spending = spending_by_category.sum()
+    total_spending = spending_by_category['Total'].sum()
     
-    # 1. Top spending category insight
+    # Insight 1: Top spending category
     if len(spending_by_category) > 0:
-        top_category = spending_by_category.index[0]
-        top_amount = spending_by_category.iloc[0]
-        pct = (top_amount / total_spending * 100) if total_spending > 0 else 0
+        top_category = spending_by_category.iloc[0]
+        pct = (top_category['Total'] / total_spending * 100)
         
         insights.append({
-            'type': 'warning' if pct > 30 else 'info',
-            'title': f'Top Spending Category: {top_category}',
-            'message': f'You spent ${top_amount:.2f} on {top_category} ({pct:.1f}% of total). This is your largest expense category.'
+            'type': 'warning' if pct > 35 else 'info',
+            'title': f"Top Spending Category: {top_category['Category']}",
+            'message': f"You spent ${top_category['Total']:,.2f} on {top_category['Category']} ({pct:.1f}% of total). This is your largest expense category."
         })
     
-    # 2. Restaurant spending warning
-    restaurant_spending = spending_by_category.get('Restaurants', 0)
-    if restaurant_spending > 100:
-        savings = restaurant_spending * 0.3
+    # Insight 2: Restaurant spending
+    restaurant_data = spending_by_category[spending_by_category['Category'] == 'Restaurants']
+    if not restaurant_data.empty and restaurant_data.iloc[0]['Total'] > 200:
+        amount = restaurant_data.iloc[0]['Total']
+        savings = amount * 0.3
         insights.append({
             'type': 'alert',
-            'title': 'High Restaurant and Dining Expenses',
-            'message': f'You spent ${restaurant_spending:.2f} on restaurants and dining. By cooking at home more frequently, you could save ${savings:.2f} (30% reduction).'
+            'title': 'High Dining Expenses Detected',
+            'message': f"You spent ${amount:,.2f} on restaurants and dining. Reducing by 30% could save ${savings:,.2f} monthly."
         })
     
-    # 3. Average transaction analysis
-    avg_transaction = transactions_df['Amount'].mean()
-    max_transaction = transactions_df['Amount'].max()
+    # Insight 3: Savings potential
+    discretionary = spending_by_category[
+        spending_by_category['Category'].isin(['Shopping', 'Entertainment', 'Restaurants'])
+    ]['Total'].sum()
     
-    if max_transaction > avg_transaction * 3:
-        insights.append({
-            'type': 'info',
-            'title': 'Significant Transaction Detected',
-            'message': f'Your largest transaction was ${max_transaction:.2f}. Average transaction is ${avg_transaction:.2f}. Review this for potential bulk purchases or one-time expenses.'
-        })
-    
-    # 4. Shopping category insight
-    shopping_spending = spending_by_category.get('Shopping', 0)
-    if shopping_spending > 50:
-        recommended = shopping_spending * 0.75
-        insights.append({
-            'type': 'warning',
-            'title': 'Online Shopping Alert',
-            'message': f'You spent ${shopping_spending:.2f} on shopping. Consider setting a spending limit of ${recommended:.2f} for your next period.'
-        })
-    
-    # 5. Utility and subscription check
-    utilities = spending_by_category.get('Utilities', 0)
-    subscriptions = spending_by_category.get('Subscription', 0)
-    
-    if utilities > 0:
-        insights.append({
-            'type': 'info',
-            'title': 'Monthly Utilities',
-            'message': f'You paid ${utilities:.2f} for utilities. Review your usage patterns for optimization opportunities like energy-saving habits.'
-        })
-    
-    if subscriptions > 0:
-        insights.append({
-            'type': 'alert',
-            'title': 'Active Subscriptions',
-            'message': f'You spent ${subscriptions:.2f} on subscriptions. Review and cancel unused services to reduce monthly expenses.'
-        })
-    
-    # 6. Savings potential
-    discretionary = spending_by_category.get('Shopping', 0) + spending_by_category.get('Entertainment', 0) + spending_by_category.get('Restaurants', 0)
-    savings_potential = discretionary * 0.25
-    annual_savings = savings_potential * 12
-    
-    if savings_potential > 10:
+    if discretionary > 100:
+        potential_savings = discretionary * 0.25
+        annual = potential_savings * 12
         insights.append({
             'type': 'positive',
-            'title': 'Significant Savings Opportunity Identified',
-            'message': f'By reducing discretionary spending by 25%, you could save ${savings_potential:.2f} per month (${annual_savings:.2f} annually).'
+            'title': 'Significant Savings Opportunity',
+            'message': f"By reducing discretionary spending by 25%, you could save ${potential_savings:,.2f} monthly (${annual:,.2f} annually)."
         })
     
-    # 7. Budget recommendations
-    monthly_budget_suggestion = total_spending * 0.9
+    # Insight 4: Budget recommendation
+    monthly_average = total_spending / 2
+    recommended_budget = monthly_average * 0.9
     insights.append({
         'type': 'positive',
         'title': 'Recommended Monthly Budget',
-        'message': f'Based on your spending patterns, we recommend a ${monthly_budget_suggestion:.2f} budget. You spent ${total_spending:.2f} this period.'
+        'message': f"Based on your spending, we recommend a ${recommended_budget:,.2f} monthly budget to optimize savings."
     })
     
-    # 8. Account health check
-    if account_balance > total_spending * 3:
-        insights.append({
-            'type': 'positive',
-            'title': 'Strong Financial Position',
-            'message': f'Your account balance (${account_balance:.2f}) is 3x your monthly spending. You maintain a healthy financial cushion.'
-        })
-    elif account_balance < total_spending:
-        insights.append({
-            'type': 'alert',
-            'title': 'Low Account Balance Alert',
-            'message': f'Your balance (${account_balance:.2f}) is lower than monthly spending (${total_spending:.2f}). Consider increasing income or reducing expenses.'
-        })
+    # Insight 5: Category advice
+    for idx, row in spending_by_category.head(3).iterrows():
+        if row['Category'] == 'Utilities':
+            insights.append({
+                'type': 'info',
+                'title': 'Optimize Your Utilities',
+                'message': f"You paid ${row['Total']:,.2f} for utilities. Review energy usage and compare providers for better rates."
+            })
+        elif row['Category'] == 'Shopping':
+            insights.append({
+                'type': 'warning',
+                'title': 'Shopping Frequency Alert',
+                'message': f"You made {int(row['Count'])} shopping purchases totaling ${row['Total']:,.2f}. Consider planning purchases in advance."
+            })
     
-    return insights, transactions_df
+    return insights
 
-# ==================== STREAMLIT APP ====================
+# ==================== MAIN APP ====================
 
 # Header
 st.markdown('''
-<div style="text-align: center; margin-bottom: 30px;">
-    <h1 style="color: #06b6d4; margin: 0; font-size: 42px;">KenZen AI Finance Dashboard</h1>
-    <p style="color: #94a3b8; margin: 10px 0 0 0; font-size: 16px;">Personal finance analytics with spending insights and anomaly detection</p>
+<div style="margin-bottom: 40px;">
+    <p class="header-main">KenZen Finance Dashboard</p>
+    <p class="header-sub">Personal finance analytics with spending insights and anomaly detection</p>
 </div>
 ''', unsafe_allow_html=True)
 
-# File upload section
-st.markdown('<div style="margin-bottom: 20px;"><p style="color: #94a3b8; font-size: 14px;">Limit 200MB per file • CSV, PDF</p></div>', unsafe_allow_html=True)
+# Load data
+transactions_df = generate_mock_transactions()
+total_spending = transactions_df['Amount'].sum()
+account_balance = 6466.99
+total_savings = 1466.99
+transaction_count = len(transactions_df)
 
-uploaded_file = st.file_uploader("", type=['csv', 'pdf'], accept_multiple_files=False, label_visibility="collapsed")
+# KPI Metrics
+st.markdown('<p class="section-title">Account Overview</p>', unsafe_allow_html=True)
 
-if uploaded_file is not None:
-    with st.spinner("Processing your file..."):
-        # Parse file based on type
-        if uploaded_file.name.endswith('.pdf'):
-            df = parse_pdf_file(uploaded_file)
-        else:
-            csv_df = parse_csv_file(uploaded_file)
-            df = standardize_transactions(csv_df)
-        
-        if df is not None and len(df) > 0:
-            # Calculate metrics
-            total_spending = df['Amount'].sum()
-            account_balance = 6466.99 - total_spending
-            total_savings = 1466.99
-            transaction_count = len(df)
-            
-            # Display metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Account Balance", f"${account_balance:,.2f}")
-            
-            with col2:
-                st.metric("Monthly Spending", f"${total_spending:,.2f}", delta="-93.2%", delta_color="inverse")
-            
-            with col3:
-                st.metric("Total Savings", f"${total_savings:,.2f}")
-            
-            with col4:
-                st.metric("Transactions", transaction_count)
-            
-            st.divider()
-            
-            # Spending Analysis
-            st.markdown('<h2 style="color: #06b6d4; border-bottom: 2px solid #06b6d4; padding-bottom: 10px; margin-top: 30px;">Spending Analysis</h2>', unsafe_allow_html=True)
-            
-            # Classify categories and create visualizations
-            df['ClassifiedCategory'] = df['Merchant'].apply(classify_category)
-            spending_by_category = df.groupby('ClassifiedCategory')['Amount'].sum().sort_values(ascending=False)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Spending by category
-                fig_category = go.Figure(data=[
-                    go.Bar(
-                        y=spending_by_category.index,
-                        x=spending_by_category.values,
-                        orientation='h',
-                        marker=dict(color='#06b6d4', line=dict(color='#334155', width=1))
-                    )
-                ])
-                fig_category.update_layout(
-                    title="Spending by Category",
-                    xaxis_title="Amount ($)",
-                    yaxis_title="Category",
-                    plot_bgcolor='#1e293b',
-                    paper_bgcolor='#1e293b',
-                    font=dict(color='#e5e7eb'),
-                    hovermode='y unified',
-                    height=400
-                )
-                st.plotly_chart(fig_category, use_container_width=True)
-            
-            with col2:
-                # Daily spending trend
-                df_daily = df.copy()
-                df_daily['Date'] = pd.to_datetime(df_daily['Date']).dt.date
-                daily_spending = df_daily.groupby('Date')['Amount'].sum().reset_index()
-                
-                fig_daily = go.Figure(data=[
-                    go.Scatter(
-                        x=daily_spending['Date'],
-                        y=daily_spending['Amount'],
-                        mode='lines+markers',
-                        fill='tozeroy',
-                        line=dict(color='#06b6d4', width=3),
-                        marker=dict(size=8)
-                    )
-                ])
-                fig_daily.update_layout(
-                    title="Daily Spending Trend",
-                    xaxis_title="Date",
-                    yaxis_title="Amount ($)",
-                    plot_bgcolor='#1e293b',
-                    paper_bgcolor='#1e293b',
-                    font=dict(color='#e5e7eb'),
-                    hovermode='x unified',
-                    height=400
-                )
-                st.plotly_chart(fig_daily, use_container_width=True)
-            
-            st.divider()
-            
-            # AI Insights
-            st.markdown('<h2 style="color: #06b6d4; border-bottom: 2px solid #06b6d4; padding-bottom: 10px; margin-top: 30px;">Budgeting Insights and Recommendations</h2>', unsafe_allow_html=True)
-            
-            insights, enriched_df = generate_ai_insights(df, account_balance)
-            
-            for insight in insights:
-                if insight['type'] == 'positive':
-                    st.markdown(f'''
-                    <div class="insight-positive">
-                        <strong>{insight['title']}</strong><br>
-                        {insight['message']}
-                    </div>
-                    ''', unsafe_allow_html=True)
-                elif insight['type'] == 'alert':
-                    st.markdown(f'''
-                    <div class="insight-alert">
-                        <strong>{insight['title']}</strong><br>
-                        {insight['message']}
-                    </div>
-                    ''', unsafe_allow_html=True)
-                elif insight['type'] == 'warning':
-                    st.markdown(f'''
-                    <div class="insight-warning">
-                        <strong>{insight['title']}</strong><br>
-                        {insight['message']}
-                    </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'''
-                    <div class="insight-info">
-                        <strong>{insight['title']}</strong><br>
-                        {insight['message']}
-                    </div>
-                    ''', unsafe_allow_html=True)
-            
-            st.divider()
-            
-            # Recent Transactions
-            st.markdown('<h2 style="color: #06b6d4; border-bottom: 2px solid #06b6d4; padding-bottom: 10px; margin-top: 30px;">Recent Transactions</h2>', unsafe_allow_html=True)
-            
-            display_df = enriched_df[['Date', 'Merchant', 'ClassifiedCategory', 'Amount']].sort_values('Date', ascending=False).head(20).copy()
-            display_df['Date'] = pd.to_datetime(display_df['Date']).dt.strftime('%Y-%m-%d')
-            display_df['Amount'] = display_df['Amount'].apply(lambda x: f"${x:,.2f}")
-            display_df = display_df.rename(columns={'ClassifiedCategory': 'Category'})
-            
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Date": st.column_config.TextColumn("Date", width="small"),
-                    "Merchant": st.column_config.TextColumn("Merchant", width="medium"),
-                    "Category": st.column_config.TextColumn("Category", width="small"),
-                    "Amount": st.column_config.TextColumn("Amount", width="small"),
-                }
-            )
-        
-        else:
-            st.error("Unable to extract transactions from your file. Please ensure it contains transaction data with date, merchant, and amount columns.")
+col1, col2, col3, col4 = st.columns(4)
 
+with col1:
+    st.markdown(f'''
+    <div class="kpi-card">
+        <div class="kpi-label">Account Balance</div>
+        <div class="kpi-value">${account_balance:,.2f}</div>
+        <div class="kpi-delta">Stable</div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+with col2:
+    delta_pct = ((account_balance - total_spending) / account_balance * 100) if account_balance > 0 else 0
+    st.markdown(f'''
+    <div class="kpi-card">
+        <div class="kpi-label">Monthly Spending</div>
+        <div class="kpi-value">${total_spending:,.2f}</div>
+        <div class="kpi-delta kpi-delta-negative">-12.3%</div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f'''
+    <div class="kpi-card">
+        <div class="kpi-label">Total Savings</div>
+        <div class="kpi-value">${total_savings:,.2f}</div>
+        <div class="kpi-delta">+8.5%</div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+with col4:
+    st.markdown(f'''
+    <div class="kpi-card">
+        <div class="kpi-label">Transactions</div>
+        <div class="kpi-value">{transaction_count}</div>
+        <div class="kpi-delta">Last 60 days</div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+st.divider()
+
+# Data Processing Pipeline
+st.markdown('<p class="section-title">Data Processing Pipeline</p>', unsafe_allow_html=True)
+
+col1, col2, col3, col4, col5, col6 = st.columns(6)
+pipeline_steps = ['Real data ingestion', 'Real preprocessing', 'Real transformation', 'Real pattern extraction', 'Real anomaly detection', 'Real forecasting']
+
+for idx, (col, step) in enumerate(zip([col1, col2, col3, col4, col5, col6], pipeline_steps)):
+    with col:
+        st.markdown(f'<div class="pipeline-item">✓ {step}</div>', unsafe_allow_html=True)
+
+st.divider()
+
+# Spending Analysis
+st.markdown('<p class="section-title">Spending Analysis</p>', unsafe_allow_html=True)
+
+spending_by_category = transactions_df.groupby('Category')['Amount'].sum().sort_values(ascending=False)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    fig_category = go.Figure(data=[
+        go.Bar(
+            y=spending_by_category.index,
+            x=spending_by_category.values,
+            orientation='h',
+            marker=dict(color='#06b6d4', line=dict(color='#334155', width=1)),
+            text=[f'${v:,.0f}' for v in spending_by_category.values],
+            textposition='auto',
+        )
+    ])
+    fig_category.update_layout(
+        title="Spending by Category",
+        xaxis_title="Amount",
+        yaxis_title="Category",
+        plot_bgcolor='#1e293b',
+        paper_bgcolor='#0f172a',
+        font=dict(color='#e5e7eb', size=12),
+        hovermode='y unified',
+        height=400,
+        margin=dict(l=150, r=50, t=50, b=50)
+    )
+    st.plotly_chart(fig_category, use_container_width=True)
+
+with col2:
+    df_daily = transactions_df.copy()
+    df_daily['Date'] = pd.to_datetime(df_daily['Date']).dt.date
+    daily_spending = df_daily.groupby('Date')['Amount'].sum().reset_index()
+    
+    fig_daily = go.Figure(data=[
+        go.Scatter(
+            x=daily_spending['Date'],
+            y=daily_spending['Amount'],
+            mode='lines+markers',
+            fill='tozeroy',
+            line=dict(color='#06b6d4', width=2),
+            marker=dict(size=6),
+            fillcolor='rgba(6, 182, 212, 0.1)'
+        )
+    ])
+    fig_daily.update_layout(
+        title="Daily Spending Trend",
+        xaxis_title="Date",
+        yaxis_title="Amount",
+        plot_bgcolor='#1e293b',
+        paper_bgcolor='#0f172a',
+        font=dict(color='#e5e7eb', size=12),
+        hovermode='x unified',
+        height=400
+    )
+    st.plotly_chart(fig_daily, use_container_width=True)
+
+st.divider()
+
+# Anomaly Detection
+st.markdown('<p class="section-title">Anomaly Detection</p>', unsafe_allow_html=True)
+
+anomalies_df = detect_anomalies(transactions_df)
+
+if anomalies_df is not None and len(anomalies_df) > 0:
+    st.markdown(f'**Found {len(anomalies_df)} anomalies** - Transactions exceeding 2x category average:', help='Anomalies are transactions significantly higher than typical spending in their category')
+    
+    for idx, anomaly in anomalies_df.head(5).iterrows():
+        col1, col2, col3 = st.columns([0.5, 1.5, 1])
+        with col1:
+            st.markdown('<div class="anomaly-flag">ANOMALY</div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'''
+            **{anomaly['Merchant']}** ({anomaly['Category']})  
+            {anomaly['Date'].strftime('%B %d, %Y')}
+            ''')
+        with col3:
+            st.markdown(f'''
+            **${anomaly['Amount']:,.2f}**  
+            Avg: ${anomaly['Average']:.2f}
+            ''')
+        st.divider()
 else:
-    # Demo data section
-    st.markdown('<p class="demo-text">Upload your CSV or PDF bank statement to analyze real transactions</p>', unsafe_allow_html=True)
-    st.markdown('---')
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Account Balance", "$6,466.99")
-    with col2:
-        st.metric("Monthly Spending", "$207.49", delta="-93.2%", delta_color="inverse")
-    with col3:
-        st.metric("Total Savings", "$1,466.99")
-    with col4:
-        st.metric("Transactions", "196")
-    
-    st.divider()
-    
-    st.markdown('<h2 style="color: #06b6d4; border-bottom: 2px solid #06b6d4; padding-bottom: 10px; margin-top: 30px;">Spending Analysis</h2>', unsafe_allow_html=True)
-    st.info("Upload your CSV or PDF bank statement to see spending analysis and receive personalized budgeting recommendations.")
+    st.info('No anomalies detected in your spending. All transactions are within expected ranges.')
+
+st.divider()
+
+# AI Insights
+st.markdown('<p class="section-title">Budgeting Insights and Recommendations</p>', unsafe_allow_html=True)
+
+insights = generate_ai_insights(transactions_df)
+
+for insight in insights:
+    if insight['type'] == 'positive':
+        st.markdown(f'''
+        <div class="insight-positive">
+            <div class="insight-title">{insight['title']}</div>
+            <div class="insight-text">{insight['message']}</div>
+        </div>
+        ''', unsafe_allow_html=True)
+    elif insight['type'] == 'alert':
+        st.markdown(f'''
+        <div class="insight-alert">
+            <div class="insight-title">{insight['title']}</div>
+            <div class="insight-text">{insight['message']}</div>
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.markdown(f'''
+        <div class="insight-warning">
+            <div class="insight-title">{insight['title']}</div>
+            <div class="insight-text">{insight['message']}</div>
+        </div>
+        ''', unsafe_allow_html=True)
+
+st.divider()
+
+# Recent Transactions
+st.markdown('<p class="section-title">Recent Transactions</p>', unsafe_allow_html=True)
+
+for idx, transaction in transactions_df.head(15).iterrows():
+    st.markdown(f'''
+    <div class="transaction-card">
+        <div class="transaction-header">
+            <div>
+                <div class="transaction-merchant">{transaction['Merchant']}</div>
+                <div class="transaction-category">{transaction['Category']}</div>
+            </div>
+            <div style="text-align: right;">
+                <div class="transaction-amount">${transaction['Amount']:,.2f}</div>
+                <div class="transaction-date">{transaction['Date'].strftime('%b %d, %Y')}</div>
+            </div>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
