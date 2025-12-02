@@ -6,7 +6,8 @@ import plotly.graph_objects as go
 import io
 import re
 from io import StringIO
-from pypdf import PdfReader
+from PyPDF2 import PdfReader
+
 
 # Page config
 st.set_page_config(
