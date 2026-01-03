@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+import io
 
 # ---------- Page config ----------
 st.set_page_config(
@@ -50,6 +51,249 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ---------- CSV Parsing Functions ----------
+@st.cache_data
+def parse_csv(uploaded_file, spending_is_negative=True):
+    """Parse messy CSV with flexible column detection"""
+    diagnostics = {
+        "total_rows": 0,
+        "valid_rows": 0,
+        "dropped_rows": 0,
+        "drop_reasons": [],
+        "column_mapping": {},
+        "date_range": None,
+        "uncategorized_count": 0
+    }
+    
+    try:
+        # Try reading CSV with multiple encoding attempts
+        content = uploaded_file.getvalue()
+        raw_df = None
+        
+        # Try different combinations to handle messy CSVs
+        for encoding in ['utf-8', 'latin-1', 'cp1252']:  # Multiple encodings
+            for sep in [',', None, ';', '\t']:  # Multiple separators, None = auto-detect
+                for skip in range(4):  # Try skiprows 0-3 to handle preamble
+                    try:
+                        if sep is None:
+                            # Auto-detect separator
+                            raw_df = pd.read_csv(
+                                io.BytesIO(content), 
+                                encoding=encoding, 
+                                skip_blank_lines=True,
+                                skiprows=skip,
+                                dtype=str,  # Use dtype=str
+                                on_bad_lines='skip',  # Skip bad lines
+                                engine='python',
+                                sep=None
+                            )
+                        else:
+                            raw_df = pd.read_csv(
+                                io.BytesIO(content), 
+                                encoding=encoding, 
+                                skip_blank_lines=True,
+                                skiprows=skip,
+                                sep=sep,
+                                dtype=str,  # Use dtype=str
+                                on_bad_lines='skip'  # Skip bad lines
+                            )
+                        
+                        # Check if we got at least 2 columns
+                        if raw_df is not None and len(raw_df.columns) >= 2:
+                            break
+                    except:
+                        continue
+                if raw_df is not None and len(raw_df.columns) >= 2:
+                    break
+            if raw_df is not None and len(raw_df.columns) >= 2:
+                break
+        
+        if raw_df is None or len(raw_df.columns) < 2:
+            return None, "Could not parse CSV with any encoding/separator combination"
+        
+        diagnostics["total_rows"] = len(raw_df)
+        
+        # Strip whitespace from column names
+        raw_df.columns = raw_df.columns.str.strip()
+        
+        # Column detection (case-insensitive partial matching)
+        def find_column(df, options):
+            cols_lower = {c.lower(): c for c in df.columns}
+            for opt in options:
+                for col_lower, col_orig in cols_lower.items():
+                    if opt.lower() in col_lower:
+                        return col_orig
+            return None
+        
+        # Find date column
+        date_col = find_column(raw_df, ["date", "transaction date", "posted date", "time", "timestamp"])
+        if not date_col:
+            return None, "No date column found. Expected columns like 'Date', 'Transaction Date', etc."
+        diagnostics["column_mapping"]["date"] = date_col
+        
+        # Find description column
+        desc_col = find_column(raw_df, ["description", "merchant", "name", "details", "memo"])
+        if not desc_col:
+            desc_col = "description"  # Create a default
+            raw_df[desc_col] = "Transaction"
+        diagnostics["column_mapping"]["description"] = desc_col
+        
+        # Find amount column(s)
+        amount_col = find_column(raw_df, ["amount", "amt", "value"])
+        debit_col = find_column(raw_df, ["debit", "withdrawal"])
+        credit_col = find_column(raw_df, ["credit", "deposit"])
+        
+        if amount_col:
+            diagnostics["column_mapping"]["amount"] = amount_col
+        elif debit_col and credit_col:
+            diagnostics["column_mapping"]["amount"] = f"{debit_col} + {credit_col}"
+        else:
+            return None, "No amount column found. Expected 'Amount' or separate 'Debit'/'Credit' columns."
+        
+        # Find category column (optional)
+        cat_col = find_column(raw_df, ["category", "type"])
+        diagnostics["column_mapping"]["category"] = cat_col or "Not found (will use 'Uncategorized')"
+        
+        # Parse data
+        parsed_rows = []
+        
+        for idx, row in raw_df.iterrows():
+            try:
+                # Parse date with errors="coerce" and dayfirst retry
+                date_val = row[date_col]
+                if pd.isna(date_val) or str(date_val).strip() == "":
+                    diagnostics["drop_reasons"].append(f"Row {idx}: Missing date")
+                    continue
+                
+                # Try parsing date with errors="coerce"
+                parsed_date = pd.to_datetime(date_val, errors='coerce')
+                
+                # If parse failed (NaT), try with dayfirst=True
+                if pd.isna(parsed_date):
+                    parsed_date = pd.to_datetime(date_val, errors='coerce', dayfirst=True)
+                
+                if pd.isna(parsed_date):
+                    diagnostics["drop_reasons"].append(f"Row {idx}: Invalid date format '{date_val}'")
+                    continue
+                
+                # Handle single amount column vs split debit/credit with correct sign logic
+                if amount_col:
+                    # Single amount column
+                    amount_val = row[amount_col]
+                    
+                    if pd.isna(amount_val) or str(amount_val).strip() == "":
+                        diagnostics["drop_reasons"].append(f"Row {idx}: Missing amount")
+                        continue
+                    
+                    # Clean amount: remove $, commas, handle parentheses as negative
+                    amount_str = str(amount_val).strip()
+                    amount_str = amount_str.replace('$', '').replace(',', '').replace(' ', '')
+                    
+                    # Handle parentheses as negative
+                    if amount_str.startswith('(') and amount_str.endswith(')'):
+                        amount_str = '-' + amount_str[1:-1]
+                    
+                    try:
+                        amount_float = float(amount_str)
+                    except:
+                        diagnostics["drop_reasons"].append(f"Row {idx}: Invalid amount '{amount_val}'")
+                        continue
+                    
+                    # Correct sign logic for spending_is_negative toggle
+                    if spending_is_negative:
+                        # Negative = Debit (spending), Positive = Credit (income)
+                        if amount_float < 0:
+                            txn_type = "Debit"
+                            amount_magnitude = abs(amount_float)
+                        else:
+                            txn_type = "Credit"
+                            amount_magnitude = amount_float
+                    else:
+                        # Positive = Debit (spending), Negative = Credit (income)
+                        if amount_float > 0:
+                            txn_type = "Debit"
+                            amount_magnitude = amount_float
+                        else:
+                            txn_type = "Credit"
+                            amount_magnitude = abs(amount_float)
+                    
+                else:
+                    # Split debit/credit columns - parse both, determine which is non-zero
+                    debit_val = row[debit_col]
+                    credit_val = row[credit_col]
+                    
+                    # Clean and parse debit
+                    debit_num = None
+                    if not pd.isna(debit_val) and str(debit_val).strip() != "":
+                        debit_str = str(debit_val).strip().replace('$', '').replace(',', '').replace(' ', '')
+                        if debit_str.startswith('(') and debit_str.endswith(')'):
+                            debit_str = '-' + debit_str[1:-1]
+                        try:
+                            debit_num = float(debit_str)
+                        except:
+                            pass
+                    
+                    # Clean and parse credit
+                    credit_num = None
+                    if not pd.isna(credit_val) and str(credit_val).strip() != "":
+                        credit_str = str(credit_val).strip().replace('$', '').replace(',', '').replace(' ', '')
+                        if credit_str.startswith('(') and credit_str.endswith(')'):
+                            credit_str = '-' + credit_str[1:-1]
+                        try:
+                            credit_num = float(credit_str)
+                        except:
+                            pass
+                    
+                    # Determine type and magnitude
+                    if credit_num is not None and credit_num != 0:
+                        txn_type = "Credit"
+                        amount_magnitude = abs(credit_num)
+                    elif debit_num is not None and debit_num != 0:
+                        txn_type = "Debit"
+                        amount_magnitude = abs(debit_num)
+                    else:
+                        diagnostics["drop_reasons"].append(f"Row {idx}: Missing debit/credit amount")
+                        continue
+                
+                # Get description
+                description = str(row[desc_col]) if not pd.isna(row[desc_col]) else "Transaction"
+                
+                # Get category
+                if cat_col and not pd.isna(row[cat_col]):
+                    category = str(row[cat_col]).strip()
+                else:
+                    category = "Uncategorized"
+                    diagnostics["uncategorized_count"] += 1
+                
+                parsed_rows.append({
+                    "Date": parsed_date,
+                    "Merchant": description,
+                    "Category": category,
+                    "Amount": round(amount_magnitude, 2),
+                    "Type": txn_type
+                })
+                
+            except Exception as e:
+                diagnostics["drop_reasons"].append(f"Row {idx}: Error - {str(e)}")
+                continue
+        
+        if not parsed_rows:
+            return None, "No valid transactions found after parsing"
+        
+        # Create DataFrame
+        result_df = pd.DataFrame(parsed_rows)
+        result_df = result_df.sort_values("Date").reset_index(drop=True)
+        
+        diagnostics["valid_rows"] = len(result_df)
+        diagnostics["dropped_rows"] = diagnostics["total_rows"] - diagnostics["valid_rows"]
+        diagnostics["date_range"] = f"{result_df['Date'].min().date()} to {result_df['Date'].max().date()}"
+        
+        return result_df, diagnostics
+        
+    except Exception as e:
+        return None, f"Error parsing CSV: {str(e)}"
 
 
 # ---------- Mock Data Generator ----------
@@ -118,8 +362,6 @@ def generate_mock_data():
     return df
 
 
-df = generate_mock_data()
-
 # ---------- KPI Calculations ----------
 def compute_kpis(df: pd.DataFrame):
     credits = df[df["Type"] == "Credit"]["Amount"].sum()
@@ -170,14 +412,64 @@ def compute_kpis(df: pd.DataFrame):
     }
 
 
-kpis = compute_kpis(df)
+# ---------- Header with CSV Upload ----------
+header_left, header_right = st.columns([3, 1])
 
-# ---------- Header ----------
-st.markdown("# KenZen AI Finance Dashboard")
-st.markdown(
-    '<div class="subheadline">A dark-mode analytics cockpit for personal finance – live spending, anomalies, and insights.</div>',
-    unsafe_allow_html=True,
-)
+with header_left:
+    st.markdown("# KenZen AI Finance Dashboard")
+    st.markdown(
+        '<div class="subheadline">A dark-mode analytics cockpit for personal finance – live spending, anomalies, and insights.</div>',
+        unsafe_allow_html=True,
+    )
+
+with header_right:
+    st.markdown("### Upload Your Data")
+    uploaded_file = st.file_uploader("CSV File", type=["csv"], label_visibility="collapsed")
+    spending_is_negative = st.checkbox("Spending is negative", value=True, help="Check if expenses are negative numbers in your CSV")
+
+if uploaded_file is not None:
+    parsed_result, diagnostics = parse_csv(uploaded_file, spending_is_negative)
+    
+    if parsed_result is None:
+        st.error(f"❌ CSV parsing failed: {diagnostics}")
+        st.info("📊 Showing demo data instead. Please check your CSV format.")
+        df = generate_mock_data()
+        data_mode = "Demo Mode (CSV parsing failed)"
+    else:
+        df = parsed_result
+        data_mode = f"Live Data ({len(df)} transactions)"
+        
+        # Show data quality expander
+        with st.expander("📊 Data Quality Report"):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Rows Loaded", diagnostics["valid_rows"])
+            with col2:
+                st.metric("Rows Dropped", diagnostics["dropped_rows"])
+            with col3:
+                st.metric("Uncategorized", diagnostics["uncategorized_count"])
+            with col4:
+                st.metric("Date Range", "✓" if diagnostics["date_range"] else "✗")
+            
+            st.markdown("**Column Mapping:**")
+            for key, val in diagnostics["column_mapping"].items():
+                st.text(f"  • {key}: {val}")
+            
+            if diagnostics["date_range"]:
+                st.markdown(f"**Date Range:** {diagnostics['date_range']}")
+            
+            if diagnostics["drop_reasons"]:
+                st.markdown(f"**Drop Reasons** (showing first 10):")
+                for reason in diagnostics["drop_reasons"][:10]:
+                    st.text(f"  • {reason}")
+else:
+    df = generate_mock_data()
+    data_mode = "Demo Mode"
+
+st.caption(f"🔹 {data_mode}")
+
+# Calculate KPIs with current data
+kpis = compute_kpis(df)
 
 # ---------- KPI Row ----------
 col1, col2, col3, col4 = st.columns(4)
@@ -253,7 +545,7 @@ with left:
 # Daily Spending Trend
 with right:
     daily = (
-        debit_df.groupby(df["Date"].dt.date)["Amount"].sum().reset_index()
+        debit_df.groupby(debit_df["Date"].dt.date)["Amount"].sum().reset_index()
     )
     fig_daily = go.Figure()
     fig_daily.add_trace(
@@ -376,3 +668,4 @@ st.markdown(
     '<div class="data-caption">KenZen AI Finance Dashboard · Real-time analysis powered by Streamlit</div>',
     unsafe_allow_html=True,
 )
+
