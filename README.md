@@ -1,41 +1,35 @@
+# KenZen AI – Automation Platform for Small Businesses
 
-***
-
-## KenZen AI Finance Dashboard – README
-
-```markdown
-# KenZen AI Finance Dashboard – Spending Analytics
-
-KenZen Finance is a self-serve dashboard that turns raw CSV transaction data into clear spending insights, anomaly detection, and savings opportunities.
+KenZen AI is a production-ready automation platform that helps small businesses turn manual workflows into GPT-powered agents for leads, reminders, and client communication.
 
 ## What It Does
 
-- Lets users upload CSVs with transaction history.
-- Automatically parses and visualizes spending by category and over time.
-- Flags unusual spending patterns using statistical + rule-based anomaly detection.
+- Provides 15+ pre-built workflows for clinics, real estate teams, and sports academies.
+- Automates lead capture, follow-ups, reminders, and messaging with GPT-powered agents.
+- Lets non-technical users plug into automation without writing code.
 
 ## Tech Stack
 
-- Frontend: Streamlit (Python)
-- Data: Pandas, Plotly
-- Analytics: Custom anomaly detection logic (z-scores + rules)
-- Hosting: Streamlit Cloud
+- Frontend: Next.js, TypeScript, React
+- AI: OpenAI GPT API, prompt chaining, custom agents
+- Backend/Infra: Node.js APIs, Vercel (hosting, CI/CD), custom domain + SSL
+- Data/Integrations: REST APIs, webhooks
 
 ## Key Features
 
-- CSV upload with automatic parsing and validation.
-- Category breakdowns, trends, and daily/weekly views.
-- Anomaly detection that highlights outlier transactions and suspicious spikes.
-- Dark-mode UI with interactive charts built in Plotly.
+- Workflow library with industry-specific templates.
+- GPT agents that generate multi-step automation flows from natural language.
+- Real-time API integration for sending emails, messages, and notifications.
+- Production deployment with CI/CD, environment configuration, and custom routing.
 
 ## Live Demo
 
-- Live: https://kenzen-finance.streamlit.app/
-- Repo: https://github.com/dikshan006/kenzen-ai-finance-dashboard
+- Live: https://www.kenzenai.com
+- Repo: (this repo)
 
 ## How to Run Locally
 
 1. Clone the repo:
    ```bash
    git clone <repo-url>
-   cd kenzen-ai-finance-dashboard
+   cd kenzen-ai
