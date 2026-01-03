@@ -1,41 +1,27 @@
+📊 KenZen AI Finance Dashboard – Spending Analytics
+Overview
+KenZen AI Finance Dashboard is a self-serve analytics tool that converts raw CSV transaction data into clear spending insights, anomaly detection, and savings signals within seconds.
+The goal is fast, explainable financial insight, not black-box AI.
+What It Does
+Lets users upload CSV transaction data with minimal setup
+Visualizes spending by category, time period, and trends
+Flags unusual transactions using statistical and rule-based anomaly detection
+Tech Stack
+Frontend: Streamlit (Python)
+Data Processing: Pandas
+Visualization: Plotly
+Analytics: Z-score outlier detection + rule-based thresholds
+Hosting: Streamlit Cloud
+Key Features
+CSV upload with automatic parsing and basic validation
+Interactive charts for category breakdowns and time-series trends
+Anomaly detection highlighting outliers and suspicious spikes
+Lightweight, readable codebase designed for quick extension
+Live Demo
+Live App: https://kenzen-finance.streamlit.app/
+Repository: https://github.com/dikshan006/kenzen-ai-finance-dashboard
+What I Focused On
+Making the tool usable in under 30 seconds (upload → insights)
+Balancing statistical rigor with explainable rules
+Keeping the implementation simple, readable, and extensible
 
-***
-
-## KenZen AI Finance Dashboard – SAME STYLE
-
-```markdown
-# KenZen AI Finance Dashboard – Spending Analytics
-
-KenZen AI Finance Dashboard is a self-serve analytics tool that turns raw CSV transaction data into clear spending insights, anomaly detection, and savings opportunities.
-
-## What It Does
-
-- Lets users upload CSVs with transaction history in a few clicks.
-- Automatically analyzes and visualizes spending by category and over time.
-- Flags unusual spending patterns using statistical and rule-based anomaly detection.
-
-## Tech Stack
-
-- Frontend: Streamlit (Python)
-- Data: Pandas, Plotly
-- Analytics: Custom anomaly detection (z-scores + rule-based thresholds)
-- Hosting: Streamlit Cloud
-
-## Key Features
-
-- CSV upload with automatic parsing and basic validation.
-- Interactive charts for category breakdowns, trends, and daily/weekly views.
-- Anomaly detection that highlights outlier transactions and suspicious spikes.
-- Dark-mode UI with Plotly-powered visualizations.
-
-## Live Demo
-
-- Live: https://kenzen-finance.streamlit.app/
-- Repo: https://github.com/dikshan006/kenzen-ai-finance-dashboard
-
-## How to Run Locally
-
-1. Clone the repo:
-   ```bash
-   git clone <repo-url>
-   cd kenzen-ai-finance-dashboard
